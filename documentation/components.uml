@@ -1,0 +1,56 @@
+@startuml
+
+package "Interfață Web (Frontend)" {
+  [Interfață Autentificare]
+  [Modul Încărcare Documente]
+  [Interfață Chat (Conversație)]
+}
+
+package "Sistem Backend" {
+  HTTP - [API Gateway / Controller]
+  [Serviciu Autentificare]
+  [Serviciu Procesare Documente]
+  [Motor RAG & Orchestrator]
+  [Serviciu Vectorizare (Embeddings)]
+}
+
+database "PostgreSQL" {
+  folder "Date Relaționale" {
+    [Metadate Utilizatori & Fisiere]
+  }
+  frame "Căutare Semantică" {
+    [pgvector (Bază de Date Vectorială)]
+  }
+}
+
+cloud "Servicii Externe" {
+  [Provider LLM (ex: OpenAI, Gemini)]
+}
+
+node "Stocare Fișiere" {
+  [Stocare Locală (PDF, DOCX, TXT)]
+}
+
+' Relatii Frontend -> Backend
+[Interfață Autentificare] --> HTTP : Login / Înregistrare
+[Modul Încărcare Documente] --> HTTP : Upload Fișiere (max 50 MB)
+[Interfață Chat (Conversație)] --> HTTP : Interogări (Limbaj natural)
+
+' Relatii interne Backend
+[API Gateway / Controller] --> [Serviciu Autentificare]
+[API Gateway / Controller] --> [Serviciu Procesare Documente]
+[API Gateway / Controller] --> [Motor RAG & Orchestrator]
+
+' Relatii Backend -> DB & Stocare
+[Serviciu Autentificare] --> [Metadate Utilizatori & Fisiere] : Scriere/Citire
+
+[Serviciu Procesare Documente] -> [Stocare Locală (PDF, DOCX, TXT)] : Salvează fișierele brute
+[Serviciu Procesare Documente] --> [Serviciu Vectorizare (Embeddings)] : Trimite text extras și împărțit (Chunks)
+[Serviciu Vectorizare (Embeddings)] --> [pgvector (Bază de Date Vectorială)] : Stochează reprezentările vectoriale
+[Serviciu Vectorizare (Embeddings)] --> [Metadate Utilizatori & Fisiere] : Stochează legăturile cu documentul sursă
+
+[Motor RAG & Orchestrator] --> [Serviciu Vectorizare (Embeddings)] : Vectorizează întrebarea studentului
+[Motor RAG & Orchestrator] --> [pgvector (Bază de Date Vectorială)] : Extrage fragmentele relevante (Căutare Semantică)
+[Motor RAG & Orchestrator] --> [Provider LLM (ex: OpenAI, Gemini)] : Generează răspunsul bazat STRICT pe context
+
+@enduml
