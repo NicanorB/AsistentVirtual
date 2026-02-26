@@ -1,0 +1,22 @@
+# Run the developer build
+
+services:
+  frontend:
+    image: node:latest
+    working_dir: /app/frontend
+    volumes:
+      - ./frontend:/app/frontend
+    ports:
+      - "5173:5173"
+    command: npm run dev -- --host
+
+  backend:
+    image: rust:latest
+    working_dir: /app/backend
+    volumes:
+      - ./backend:/app/backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ROCKET_ADDRESS=0.0.0.0
+    command: sh -c "cd dev && cargo install cargo-watch && cargo watch -x run"
