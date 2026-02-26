@@ -1,4 +1,4 @@
-# Run the developer build
+# Run the development build
 
 services:
   frontend:
@@ -8,15 +8,13 @@ services:
       - ./frontend:/app/frontend
     ports:
       - "5173:5173"
-    command: npm run dev -- --host
+    command: sh -c "npm install && npm run dev -- --host"
 
   backend:
     image: rust:latest
-    working_dir: /app/backend
+    working_dir: /app/backend/dev
     volumes:
       - ./backend:/app/backend
-    ports:
-      - "8000:8000"
     environment:
       - ROCKET_ADDRESS=0.0.0.0
-    command: sh -c "cd dev && cargo install cargo-watch && cargo watch -x run"
+    command: sh -c "cargo install cargo-watch && cargo watch -x run"
