@@ -1,3 +1,8 @@
-[workspace]
-resolver = "3"
-members = ["dev"]
+[package]
+name = "AsistentVirtual-backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rocket = { version = "0.5.1", features = ["json"] }
+rocket_db_pools = { version = "0.2.0", features = ["diesel_postgres"] }

@@ -12,7 +12,7 @@ services:
 
   backend:
     image: rust:latest
-    working_dir: /app/backend/dev
+    working_dir: /app/backend
     volumes:
       - ./backend:/app/backend
     environment:
