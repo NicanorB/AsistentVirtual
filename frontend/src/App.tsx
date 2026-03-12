@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import "./App.css";
 
@@ -158,40 +158,57 @@ function App() {
     }
   };
 
-  const handleRefreshToken = async () => {
-    setErrorMessage("");
-    setProtectedResponse(null);
+  const refreshSession = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!refreshToken) {
+        throw new Error("No refresh token available.");
+      }
 
-    if (!refreshToken) {
-      setErrorMessage("No refresh token available.");
-      return;
-    }
+      const shouldUpdateUi = !options?.silent;
 
-    setIsRefreshing(true);
+      if (shouldUpdateUi) {
+        setErrorMessage("");
+        setProtectedResponse(null);
+        setIsRefreshing(true);
+      }
 
-    try {
-      const tokens = await parseApiResponse<TokenPair>(
-        await fetch("/api/auth/refresh_token", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            refresh_token: refreshToken,
+      try {
+        const tokens = await parseApiResponse<TokenPair>(
+          await fetch("/api/auth/refresh_token", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              refresh_token: refreshToken,
+            }),
           }),
-        }),
-      );
+        );
 
-      updateSession(tokens, "Access token refreshed successfully.");
-    } catch (error) {
-      resetSession("Session cleared after refresh failure.");
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Refresh token request failed.",
-      );
-    } finally {
-      setIsRefreshing(false);
+        updateSession(tokens, "Access token refreshed successfully.");
+        return tokens;
+      } catch (error) {
+        resetSession("Session cleared after refresh failure.");
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Refresh token request failed.";
+        setErrorMessage(message);
+        throw new Error(message);
+      } finally {
+        if (shouldUpdateUi) {
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [refreshToken],
+  );
+
+  const handleRefreshToken = async () => {
+    try {
+      await refreshSession();
+    } catch {
+      return;
     }
   };
 
@@ -207,14 +224,25 @@ function App() {
     setIsCallingProtected(true);
 
     try {
-      const data = await parseApiResponse<ProtectedResponse>(
-        await fetch("/api/mock", {
+      const makeProtectedRequest = (token: string, type: string) =>
+        fetch("/api/mock", {
           method: "GET",
           headers: {
-            Authorization: `${tokenType} ${accessToken}`,
+            Authorization: `${type} ${token}`,
           },
-        }),
-      );
+        });
+
+      let response = await makeProtectedRequest(accessToken, tokenType);
+
+      if (response.status === 401) {
+        const refreshedTokens = await refreshSession({ silent: true });
+        response = await makeProtectedRequest(
+          refreshedTokens.access_token,
+          refreshedTokens.token_type,
+        );
+      }
+
+      const data = await parseApiResponse<ProtectedResponse>(response);
 
       setProtectedResponse(data);
       setStatusMessage("Protected endpoint call succeeded.");
