@@ -9,7 +9,6 @@ dependencies = [
  "anyhow",
  "argon2",
  "axum",
- "dotenvy",
  "jsonwebtoken",
  "serde",
  "serde_json",

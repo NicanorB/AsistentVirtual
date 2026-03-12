@@ -35,7 +35,7 @@ impl AppConfig {
         Ok(Self {
             jwt_access_secret,
             jwt_refresh_secret,
-            access_ttl: Duration::minutes(5),
+            access_ttl: Duration::seconds(5),
             refresh_ttl: Duration::days(30),
         })
     }
@@ -512,8 +512,6 @@ fn build_router(state: AppState) -> Router {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenvy::dotenv().ok();
-
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {

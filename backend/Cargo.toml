@@ -19,6 +19,5 @@ time = { version = "0.3.36", features = ["serde", "macros"] }
 jsonwebtoken = "9.3.0"
 thiserror = "2.0.12"
 anyhow = "1.0.99"
-dotenvy = "0.15.7"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
