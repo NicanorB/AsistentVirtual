@@ -35,7 +35,7 @@ impl AppConfig {
         Ok(Self {
             jwt_access_secret,
             jwt_refresh_secret,
-            access_ttl: Duration::seconds(5),
+            access_ttl: Duration::minutes(5),
             refresh_ttl: Duration::days(30),
         })
     }
@@ -276,6 +276,13 @@ struct UserRow {
     password_hash: String,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct RefreshTokenRow {
+    user_id: Uuid,
+    token: String,
+    expires_at: OffsetDateTime,
+}
+
 async fn db_find_user_by_username(
     pool: &PgPool,
     username: &str,
@@ -320,6 +327,49 @@ async fn db_insert_user(
             ApiError::Internal
         }
     })
+}
+
+async fn db_upsert_refresh_token(
+    pool: &PgPool,
+    user_id: Uuid,
+    token: &str,
+    expires_at: OffsetDateTime,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        INSERT INTO refresh_tokens (user_id, token, expires_at)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (user_id)
+        DO UPDATE SET
+            token = EXCLUDED.token,
+            expires_at = EXCLUDED.expires_at
+        "#,
+    )
+    .bind(user_id)
+    .bind(token)
+    .bind(expires_at)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
+}
+
+async fn db_find_refresh_token(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> Result<Option<RefreshTokenRow>, ApiError> {
+    sqlx::query_as::<_, RefreshTokenRow>(
+        r#"
+        SELECT user_id, token, expires_at
+        FROM refresh_tokens
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
 }
 
 fn hash_password(password: &str) -> Result<String, ApiError> {
@@ -374,6 +424,11 @@ async fn signup(
 
     let access_token = mint_access_token(&cfg, user.id)?;
     let refresh_token = mint_refresh_token(&cfg, user.id)?;
+    let refresh_claims = decode_refresh_token(&cfg, &refresh_token)?;
+    let refresh_expires_at =
+        OffsetDateTime::from_unix_timestamp(refresh_claims.exp).map_err(|_| ApiError::Internal)?;
+
+    db_upsert_refresh_token(&pool, user.id, &refresh_token, refresh_expires_at).await?;
 
     Ok(Json(TokenPair {
         access_token,
@@ -399,6 +454,11 @@ async fn login(
 
     let access_token = mint_access_token(&cfg, user.id)?;
     let refresh_token = mint_refresh_token(&cfg, user.id)?;
+    let refresh_claims = decode_refresh_token(&cfg, &refresh_token)?;
+    let refresh_expires_at =
+        OffsetDateTime::from_unix_timestamp(refresh_claims.exp).map_err(|_| ApiError::Internal)?;
+
+    db_upsert_refresh_token(&pool, user.id, &refresh_token, refresh_expires_at).await?;
 
     Ok(Json(TokenPair {
         access_token,
@@ -409,16 +469,32 @@ async fn login(
 }
 
 async fn refresh_token(
+    State(pool): State<PgPool>,
     State(cfg): State<Arc<AppConfig>>,
     Json(payload): Json<RefreshRequest>,
 ) -> Result<Json<TokenPair>, ApiError> {
     let claims = decode_refresh_token(&cfg, &payload.refresh_token)?;
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| ApiError::Unauthorized)?;
 
-    // In a production system, you'd typically validate the refresh token against a DB table
-    // (rotation, revocation, reuse detection). Here we only validate signature + expiry.
+    let stored_refresh_token = db_find_refresh_token(&pool, user_id)
+        .await?
+        .ok_or(ApiError::Unauthorized)?;
+
+    if stored_refresh_token.token != payload.refresh_token {
+        return Err(ApiError::Unauthorized);
+    }
+
+    if stored_refresh_token.expires_at < OffsetDateTime::now_utc() {
+        return Err(ApiError::Unauthorized);
+    }
+
     let access_token = mint_access_token(&cfg, user_id)?;
     let refresh_token = mint_refresh_token(&cfg, user_id)?;
+    let new_refresh_claims = decode_refresh_token(&cfg, &refresh_token)?;
+    let new_refresh_expires_at = OffsetDateTime::from_unix_timestamp(new_refresh_claims.exp)
+        .map_err(|_| ApiError::Internal)?;
+
+    db_upsert_refresh_token(&pool, user_id, &refresh_token, new_refresh_expires_at).await?;
 
     Ok(Json(TokenPair {
         access_token,
