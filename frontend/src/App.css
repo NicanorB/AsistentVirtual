@@ -1,42 +1,176 @@
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+    width: 100%;
+    margin: 0 auto;
+    padding: 2rem;
+    box-sizing: border-box;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.app-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.auth-card {
+    width: min(100%, 760px);
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
 }
 
 .card {
-  padding: 2em;
+    padding: 2rem;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+}
+
+.auth-mode-switch {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+}
+
+.auth-mode-switch button.active {
+    border-color: #646cff;
+    box-shadow: 0 0 0 1px #646cff;
+}
+
+.auth-form {
+    display: grid;
+    gap: 1rem;
+}
+
+.auth-form label,
+.token-panel label {
+    display: grid;
+    gap: 0.5rem;
+    font-weight: 600;
+}
+
+input,
+textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 10px;
+    border: 1px solid rgba(127, 127, 127, 0.35);
+    padding: 0.8rem 0.95rem;
+    font: inherit;
+    color: inherit;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+input:focus,
+textarea:focus {
+    outline: 2px solid #646cff;
+    outline-offset: 1px;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 8rem;
+    word-break: break-all;
+}
+
+.action-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.status-panel,
+.token-panel,
+.response-panel,
+.help-panel {
+    display: grid;
+    gap: 0.75rem;
+    padding: 1rem 1.1rem;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(127, 127, 127, 0.18);
+}
+
+.status-panel h2,
+.token-panel h2,
+.response-panel h2,
+.help-panel h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.status-panel p,
+.token-panel p,
+.help-panel ul {
+    margin: 0;
+}
+
+.error-text {
+    color: #ff7b7b;
+}
+
+.response-panel pre {
+    margin: 0;
+    padding: 1rem;
+    border-radius: 12px;
+    overflow-x: auto;
+    background: rgba(0, 0, 0, 0.25);
+    font-size: 0.95rem;
+}
+
+.help-panel ul {
+    padding-left: 1.25rem;
 }
 
 .read-the-docs {
-  color: #888;
+    color: #a0a0a0;
+}
+
+@media (max-width: 700px) {
+    #root {
+        padding: 1rem;
+    }
+
+    .card {
+        padding: 1.25rem;
+    }
+
+    .action-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    .card {
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow:
+            0 18px 40px rgba(31, 41, 55, 0.12),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .status-panel,
+    .token-panel,
+    .response-panel,
+    .help-panel {
+        background: rgba(99, 102, 241, 0.04);
+        border-color: rgba(99, 102, 241, 0.12);
+    }
+
+    input,
+    textarea {
+        background: #ffffff;
+        border-color: rgba(99, 102, 241, 0.18);
+    }
+
+    .response-panel pre {
+        background: #f4f6fb;
+    }
+
+    .read-the-docs {
+        color: #5f6473;
+    }
 }
