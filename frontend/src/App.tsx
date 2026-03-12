@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { SubmitEvent } from "react";
 import "./App.css";
 
 type TokenPair = {
@@ -114,7 +114,7 @@ function App() {
     setStatusMessage(message);
   };
 
-  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+  const submitAuth = async (event: SubmitEvent) => {
     event.preventDefault();
     setErrorMessage("");
     setProtectedResponse(null);
