@@ -62,7 +62,6 @@ struct UserRow {
 
 #[derive(Debug, sqlx::FromRow)]
 struct RefreshTokenRow {
-    user_id: Uuid,
     token: String,
     expires_at: OffsetDateTime,
 }
@@ -286,7 +285,7 @@ async fn db_find_refresh_token(
 ) -> Result<Option<RefreshTokenRow>, ApiError> {
     sqlx::query_as::<_, RefreshTokenRow>(
         r#"
-        SELECT user_id, token, expires_at
+        SELECT token, expires_at
         FROM refresh_tokens
         WHERE user_id = $1
         "#,
