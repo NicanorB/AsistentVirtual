@@ -394,3 +394,183 @@ pub async fn refresh_token(
         expires_in_seconds: cfg.access_ttl.whole_seconds(),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::AppConfig;
+    use axum::{
+        body::Body,
+        extract::FromRequestParts,
+        http::{Request, StatusCode},
+        response::IntoResponse,
+    };
+    use std::sync::Arc;
+    use time::Duration;
+
+    fn test_config() -> AppConfig {
+        AppConfig {
+            jwt_access_secret: "access-secret-for-tests".to_string(),
+            jwt_refresh_secret: "refresh-secret-for-tests".to_string(),
+            access_ttl: Duration::minutes(5),
+            refresh_ttl: Duration::days(30),
+        }
+    }
+
+    #[test]
+    fn hash_password_rejects_short_passwords() {
+        let result = hash_password("short");
+
+        assert!(matches!(
+            result,
+            Err(ApiError::BadRequest(
+                "password must be at least 8 characters"
+            ))
+        ));
+    }
+
+    #[test]
+    fn hash_and_verify_password_round_trip() {
+        let password = "very-secure-password";
+        let hash = hash_password(password).expect("password should hash successfully");
+
+        assert_ne!(hash, password);
+        assert!(
+            verify_password(password, &hash).expect("password verification should succeed"),
+            "expected original password to verify"
+        );
+        assert!(
+            !verify_password("wrong-password", &hash)
+                .expect("password verification should succeed"),
+            "expected wrong password to fail verification"
+        );
+    }
+
+    #[test]
+    fn verify_password_returns_internal_for_invalid_hash() {
+        let result = verify_password("password123", "not-a-valid-argon2-hash");
+
+        assert!(matches!(result, Err(ApiError::Internal)));
+    }
+
+    #[test]
+    fn mint_and_decode_access_token_round_trip() {
+        let cfg = test_config();
+        let user_id = Uuid::new_v4();
+
+        let token = mint_access_token(&cfg, user_id).expect("access token should be minted");
+        let claims = decode_access_token(&cfg, &token).expect("access token should decode");
+
+        assert_eq!(claims.sub, user_id.to_string());
+        assert_eq!(claims.typ, "access");
+        assert!(claims.exp >= claims.iat);
+    }
+
+    #[test]
+    fn mint_and_decode_refresh_token_round_trip() {
+        let cfg = test_config();
+        let user_id = Uuid::new_v4();
+
+        let token = mint_refresh_token(&cfg, user_id).expect("refresh token should be minted");
+        let claims = decode_refresh_token(&cfg, &token).expect("refresh token should decode");
+
+        assert_eq!(claims.sub, user_id.to_string());
+        assert_eq!(claims.typ, "refresh");
+        assert!(!claims.jti.is_empty());
+        assert!(claims.exp >= claims.iat);
+    }
+
+    #[test]
+    fn decode_access_token_rejects_refresh_token() {
+        let cfg = test_config();
+        let user_id = Uuid::new_v4();
+
+        let refresh_token =
+            mint_refresh_token(&cfg, user_id).expect("refresh token should be minted");
+
+        let result = decode_access_token(&cfg, &refresh_token);
+
+        assert!(matches!(result, Err(ApiError::Unauthorized)));
+    }
+
+    #[test]
+    fn decode_refresh_token_rejects_access_token() {
+        let cfg = test_config();
+        let user_id = Uuid::new_v4();
+
+        let access_token = mint_access_token(&cfg, user_id).expect("access token should be minted");
+
+        let result = decode_refresh_token(&cfg, &access_token);
+
+        assert!(matches!(result, Err(ApiError::Unauthorized)));
+    }
+
+    #[tokio::test]
+    async fn auth_user_extractor_reads_valid_bearer_token() {
+        let cfg = Arc::new(test_config());
+        let user_id = Uuid::new_v4();
+        let token = mint_access_token(&cfg, user_id).expect("access token should be minted");
+
+        let request = Request::builder()
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .expect("request should build");
+        let (mut parts, _) = request.into_parts();
+
+        let auth_user = AuthUser::from_request_parts(&mut parts, &cfg)
+            .await
+            .expect("extractor should succeed");
+
+        assert_eq!(auth_user.user_id, user_id);
+    }
+
+    #[tokio::test]
+    async fn auth_user_extractor_rejects_missing_header() {
+        let cfg = Arc::new(test_config());
+        let request = Request::builder()
+            .body(Body::empty())
+            .expect("request should build");
+        let (mut parts, _) = request.into_parts();
+
+        let result = AuthUser::from_request_parts(&mut parts, &cfg).await;
+
+        assert!(matches!(result, Err(ApiError::Unauthorized)));
+    }
+
+    #[tokio::test]
+    async fn auth_user_extractor_rejects_non_bearer_header() {
+        let cfg = Arc::new(test_config());
+        let request = Request::builder()
+            .header("authorization", "Basic abc123")
+            .body(Body::empty())
+            .expect("request should build");
+        let (mut parts, _) = request.into_parts();
+
+        let result = AuthUser::from_request_parts(&mut parts, &cfg).await;
+
+        assert!(matches!(result, Err(ApiError::Unauthorized)));
+    }
+
+    #[tokio::test]
+    async fn auth_user_extractor_rejects_token_signed_with_wrong_secret() {
+        let valid_cfg = Arc::new(test_config());
+        let other_cfg = AppConfig {
+            jwt_access_secret: "different-access-secret".to_string(),
+            jwt_refresh_secret: valid_cfg.jwt_refresh_secret.clone(),
+            access_ttl: valid_cfg.access_ttl,
+            refresh_ttl: valid_cfg.refresh_ttl,
+        };
+        let user_id = Uuid::new_v4();
+        let token = mint_access_token(&other_cfg, user_id).expect("access token should be minted");
+
+        let request = Request::builder()
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .expect("request should build");
+        let (mut parts, _) = request.into_parts();
+
+        let result = AuthUser::from_request_parts(&mut parts, &valid_cfg).await;
+
+        assert!(matches!(result, Err(ApiError::Unauthorized)));
+    }
+}

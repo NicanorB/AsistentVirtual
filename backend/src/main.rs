@@ -1,5 +1,6 @@
 mod auth;
 mod common;
+mod tests;
 
 use axum::{
     Json, Router,
