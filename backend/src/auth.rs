@@ -399,12 +399,7 @@ pub async fn refresh_token(
 mod tests {
     use super::*;
     use crate::common::AppConfig;
-    use axum::{
-        body::Body,
-        extract::FromRequestParts,
-        http::{Request, StatusCode},
-        response::IntoResponse,
-    };
+    use axum::{body::Body, extract::FromRequestParts, http::Request};
     use std::sync::Arc;
     use time::Duration;
 
