@@ -1,5 +1,7 @@
 mod auth;
 mod common;
+
+#[cfg(test)]
 mod tests;
 
 use axum::{
