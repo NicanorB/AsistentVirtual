@@ -54,6 +54,7 @@ pub struct RefreshRequest {
 }
 
 #[derive(Debug, sqlx::FromRow)]
+#[allow(dead_code)]
 struct UserRow {
     id: Uuid,
     username: String,
