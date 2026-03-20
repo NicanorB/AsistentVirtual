@@ -56,6 +56,7 @@ pub struct RefreshRequest {
 #[derive(Debug, sqlx::FromRow)]
 struct UserRow {
     id: Uuid,
+    username: String,
     password_hash: String,
 }
 
@@ -212,7 +213,7 @@ async fn db_find_user_by_username(
 ) -> Result<Option<UserRow>, ApiError> {
     sqlx::query_as::<_, UserRow>(
         r#"
-        SELECT id, password_hash
+        SELECT id, username, password_hash
         FROM users
         WHERE username = $1
         "#,
