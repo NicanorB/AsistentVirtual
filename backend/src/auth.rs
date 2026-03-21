@@ -7,7 +7,7 @@ use axum::{
 };
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -255,7 +255,7 @@ async fn db_insert_user(
 }
 
 async fn db_upsert_refresh_token(
-    pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
     token: &str,
     expires_at: OffsetDateTime,
@@ -273,9 +273,22 @@ async fn db_upsert_refresh_token(
     .bind(user_id)
     .bind(token)
     .bind(expires_at)
-    .execute(pool)
+    .execute(tx.as_mut())
     .await
     .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
+}
+
+async fn db_insert_or_rotate_refresh_token(
+    pool: &PgPool,
+    user_id: Uuid,
+    token: &str,
+    expires_at: OffsetDateTime,
+) -> Result<(), ApiError> {
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+    db_upsert_refresh_token(&mut tx, user_id, token, expires_at).await?;
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     Ok(())
 }
@@ -312,7 +325,27 @@ pub async fn signup(
     }
 
     let password_hash = hash_password(&payload.password)?;
-    let user = db_insert_user(&pool, &payload.username, &password_hash).await?;
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+    let user = sqlx::query_as::<_, UserRow>(
+        r#"
+        INSERT INTO users (id, username, password_hash)
+        VALUES ($1, $2, $3)
+        RETURNING id, username, password_hash
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(&payload.username)
+    .bind(&password_hash)
+    .fetch_one(tx.as_mut())
+    .await
+    .map_err(|e| {
+        let msg = e.to_string().to_lowercase();
+        if msg.contains("unique") || msg.contains("duplicate") {
+            ApiError::Conflict("username already exists")
+        } else {
+            ApiError::Internal
+        }
+    })?;
 
     let access_token = mint_access_token(&cfg, user.id)?;
     let refresh_token = mint_refresh_token(&cfg, user.id)?;
@@ -320,7 +353,8 @@ pub async fn signup(
     let refresh_expires_at =
         OffsetDateTime::from_unix_timestamp(refresh_claims.exp).map_err(|_| ApiError::Internal)?;
 
-    db_upsert_refresh_token(&pool, user.id, &refresh_token, refresh_expires_at).await?;
+    db_upsert_refresh_token(&mut tx, user.id, &refresh_token, refresh_expires_at).await?;
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     Ok(Json(TokenPair {
         access_token,
@@ -350,7 +384,7 @@ pub async fn login(
     let refresh_expires_at =
         OffsetDateTime::from_unix_timestamp(refresh_claims.exp).map_err(|_| ApiError::Internal)?;
 
-    db_upsert_refresh_token(&pool, user.id, &refresh_token, refresh_expires_at).await?;
+    db_insert_or_rotate_refresh_token(&pool, user.id, &refresh_token, refresh_expires_at).await?;
 
     Ok(Json(TokenPair {
         access_token,
@@ -386,7 +420,8 @@ pub async fn refresh_token(
     let new_refresh_expires_at = OffsetDateTime::from_unix_timestamp(new_refresh_claims.exp)
         .map_err(|_| ApiError::Internal)?;
 
-    db_upsert_refresh_token(&pool, user_id, &refresh_token, new_refresh_expires_at).await?;
+    db_insert_or_rotate_refresh_token(&pool, user_id, &refresh_token, new_refresh_expires_at)
+        .await?;
 
     Ok(Json(TokenPair {
         access_token,
