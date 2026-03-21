@@ -4,7 +4,11 @@ use axum::{
 };
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use std::sync::{Arc, OnceLock};
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
+use tokio::time::sleep;
 use tower::util::ServiceExt;
 use uuid::Uuid;
 
@@ -195,6 +199,8 @@ async fn login_returns_token_pair_for_existing_user() {
     .await;
 
     assert_eq!(signup_response.status(), StatusCode::OK);
+
+    sleep(Duration::from_secs(1)).await;
 
     let login_response = send_json(
         app,
