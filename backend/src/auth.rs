@@ -413,7 +413,8 @@ mod tests {
 
     #[test]
     fn hash_password_rejects_short_passwords() {
-        let result = hash_password("short");
+        // 7 characters
+        let result = hash_password("AAAAAAA");
 
         assert!(matches!(
             result,
@@ -421,6 +422,14 @@ mod tests {
                 "password must be at least 8 characters"
             ))
         ));
+    }
+
+    #[test]
+    fn hash_password_allows_long_passwords() {
+        // 8 characters
+        let result = hash_password("AAAAAAAA");
+
+        assert!(matches!(result, Ok(_)));
     }
 
     #[test]
