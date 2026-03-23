@@ -3,7 +3,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{Value, json};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{Connection, Executor, PgConnection, PgPool, postgres::PgPoolOptions};
 use std::sync::{Arc, OnceLock};
 use tower::util::ServiceExt;
 use uuid::Uuid;
@@ -21,6 +21,22 @@ fn test_database_url() -> &'static str {
     })
 }
 
+fn admin_database_url() -> String {
+    format!("{}/postgres", test_database_url().trim_end_matches('/'))
+}
+
+fn test_database_name() -> String {
+    format!("asistent_virtual_test_{}", Uuid::new_v4().simple())
+}
+
+fn test_database_url_for(database_name: &str) -> String {
+    format!(
+        "{}/{}",
+        test_database_url().trim_end_matches('/'),
+        database_name
+    )
+}
+
 fn test_config() -> Arc<AppConfig> {
     Arc::new(AppConfig {
         jwt_access_secret: "integration-test-access-secret".to_string(),
@@ -30,10 +46,21 @@ fn test_config() -> Arc<AppConfig> {
     })
 }
 
-async fn create_test_pool() -> PgPool {
+async fn create_test_pool() -> (PgPool, String) {
+    let database_name = test_database_name();
+    let mut admin_connection = PgConnection::connect(&admin_database_url())
+        .await
+        .expect("admin database connection should succeed");
+
+    admin_connection
+        .execute(format!(r#"CREATE DATABASE "{}""#, database_name).as_str())
+        .await
+        .expect("test database creation should succeed");
+
+    let database_url = test_database_url_for(&database_name);
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(test_database_url())
+        .connect(&database_url)
         .await
         .expect("test database connection should succeed");
 
@@ -42,26 +69,57 @@ async fn create_test_pool() -> PgPool {
         .await
         .expect("migrations should succeed");
 
-    pool
+    (pool, database_name)
 }
 
-async fn truncate_tables(pool: &PgPool) {
-    sqlx::query("TRUNCATE TABLE refresh_tokens, users RESTART IDENTITY CASCADE")
-        .execute(pool)
+async fn drop_test_database(database_name: &str) {
+    let mut admin_connection = PgConnection::connect(&admin_database_url())
         .await
-        .expect("table cleanup should succeed");
+        .expect("admin database connection should succeed");
+
+    admin_connection
+        .execute(
+            format!(
+                r#"DROP DATABASE IF EXISTS "{}" WITH (FORCE)"#,
+                database_name
+            )
+            .as_str(),
+        )
+        .await
+        .expect("test database cleanup should succeed");
 }
 
-async fn test_app() -> axum::Router {
-    let pool = create_test_pool().await;
-    truncate_tables(&pool).await;
+struct TestApp {
+    app: axum::Router,
+    pool: PgPool,
+    database_name: String,
+}
+
+impl Drop for TestApp {
+    fn drop(&mut self) {
+        let database_name = self.database_name.clone();
+        let pool = self.pool.clone();
+
+        tokio::spawn(async move {
+            pool.close().await;
+            drop_test_database(&database_name).await;
+        });
+    }
+}
+
+async fn test_app() -> TestApp {
+    let (pool, database_name) = create_test_pool().await;
 
     let state = AppState {
-        pool,
+        pool: pool.clone(),
         config: test_config(),
     };
 
-    build_router(state)
+    TestApp {
+        app: build_router(state),
+        pool,
+        database_name,
+    }
 }
 
 async fn send_json(
@@ -90,11 +148,11 @@ async fn response_json(response: axum::response::Response) -> Value {
 
 #[tokio::test]
 async fn signup_returns_token_pair_and_persists_user_and_refresh_token() {
-    let app = test_app().await;
+    let test_app = test_app().await;
     let username = format!("user-{}", Uuid::new_v4());
 
     let response = send_json(
-        app,
+        test_app.app.clone(),
         "POST",
         "/api/auth/signup",
         json!({
@@ -113,29 +171,19 @@ async fn signup_returns_token_pair_and_persists_user_and_refresh_token() {
     assert!(body["access_token"].as_str().unwrap().len() > 20);
     assert!(body["refresh_token"].as_str().unwrap().len() > 20);
 
-    let pool = create_test_pool().await;
+    let stored_user: Option<(String,)> =
+        sqlx::query_as("SELECT username FROM users WHERE username = $1")
+            .bind(username.as_str())
+            .fetch_optional(&test_app.pool)
+            .await
+            .expect("user lookup should succeed");
 
-    let stored_user: (String,) = sqlx::query_as("SELECT username FROM users WHERE username = $1")
-        .bind(body.get("username").and_then(Value::as_str).unwrap_or(""))
-        .fetch_optional(&pool)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| {
-            let username = body
-                .get("username")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            (username,)
-        });
-
-    assert_eq!(stored_user.0, "");
+    assert_eq!(stored_user.map(|row| row.0), Some(username));
 
     let refresh_count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM refresh_tokens WHERE token = $1")
             .bind(body["refresh_token"].as_str().unwrap())
-            .fetch_one(&pool)
+            .fetch_one(&test_app.pool)
             .await
             .expect("refresh token should be persisted");
 
@@ -144,11 +192,11 @@ async fn signup_returns_token_pair_and_persists_user_and_refresh_token() {
 
 #[tokio::test]
 async fn signup_rejects_duplicate_username() {
-    let app = test_app().await;
+    let test_app = test_app().await;
     let username = format!("duplicate-{}", Uuid::new_v4());
 
     let first_response = send_json(
-        app.clone(),
+        test_app.app.clone(),
         "POST",
         "/api/auth/signup",
         json!({
@@ -161,7 +209,7 @@ async fn signup_rejects_duplicate_username() {
     assert_eq!(first_response.status(), StatusCode::OK);
 
     let second_response = send_json(
-        app,
+        test_app.app.clone(),
         "POST",
         "/api/auth/signup",
         json!({
@@ -180,11 +228,11 @@ async fn signup_rejects_duplicate_username() {
 
 #[tokio::test]
 async fn login_returns_token_pair_for_existing_user() {
-    let app = test_app().await;
+    let test_app = test_app().await;
     let username = format!("login-{}", Uuid::new_v4());
 
     let signup_response = send_json(
-        app.clone(),
+        test_app.app.clone(),
         "POST",
         "/api/auth/signup",
         json!({
@@ -197,7 +245,7 @@ async fn login_returns_token_pair_for_existing_user() {
     assert_eq!(signup_response.status(), StatusCode::OK);
 
     let login_response = send_json(
-        app,
+        test_app.app.clone(),
         "POST",
         "/api/auth/login",
         json!({
@@ -219,11 +267,11 @@ async fn login_returns_token_pair_for_existing_user() {
 
 #[tokio::test]
 async fn login_rejects_invalid_password() {
-    let app = test_app().await;
+    let test_app = test_app().await;
     let username = format!("wrong-pass-{}", Uuid::new_v4());
 
     let signup_response = send_json(
-        app.clone(),
+        test_app.app.clone(),
         "POST",
         "/api/auth/signup",
         json!({
@@ -236,7 +284,7 @@ async fn login_rejects_invalid_password() {
     assert_eq!(signup_response.status(), StatusCode::OK);
 
     let login_response = send_json(
-        app,
+        test_app.app.clone(),
         "POST",
         "/api/auth/login",
         json!({
@@ -255,10 +303,10 @@ async fn login_rejects_invalid_password() {
 
 #[tokio::test]
 async fn login_rejects_unknown_user() {
-    let app = test_app().await;
+    let test_app = test_app().await;
 
     let response = send_json(
-        app,
+        test_app.app.clone(),
         "POST",
         "/api/auth/login",
         json!({
