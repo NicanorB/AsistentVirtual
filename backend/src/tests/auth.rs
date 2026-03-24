@@ -208,3 +208,70 @@ async fn login_rejects_unknown_user() {
     assert_eq!(body["error"], "unauthorized");
     assert_eq!(body["message"], "unauthorized");
 }
+
+#[tokio::test]
+async fn refresh_returns_new_token_pair_and_invalidates_old_refresh_token() {
+    let test_app = test_app().await;
+    let username = format!("refresh-{}", Uuid::new_v4());
+
+    // 1. Signup pentru a obține token-urile inițiale
+    let signup_response = send_json(
+        test_app.app.clone(),
+        "POST",
+        "/api/auth/signup",
+        json!({
+            "username": username,
+            "password": "very-secure-password",
+        }),
+    )
+    .await;
+
+    assert_eq!(signup_response.status(), StatusCode::OK);
+
+    let signup_body = response_json(signup_response).await;
+    let old_refresh_token = signup_body["refresh_token"].as_str().unwrap().to_string();
+
+    // 2. Folosim refresh token-ul pentru a obține un nou token pair
+    let refresh_response = send_json(
+        test_app.app.clone(),
+        "POST",
+        "/api/auth/refresh",
+        json!({
+            "refresh_token": old_refresh_token,
+        }),
+    )
+    .await;
+
+    assert_eq!(refresh_response.status(), StatusCode::OK);
+
+    let refresh_body = response_json(refresh_response).await;
+
+    assert_eq!(refresh_body["token_type"], "Bearer");
+    assert!(refresh_body["expires_in_seconds"].as_i64().unwrap() > 0);
+    assert!(refresh_body["access_token"].as_str().unwrap().len() > 20);
+    assert!(refresh_body["refresh_token"].as_str().unwrap().len() > 20);
+
+    // Noul refresh token trebuie să fie diferit de cel vechi
+    let new_refresh_token = refresh_body["refresh_token"].as_str().unwrap();
+    assert_ne!(new_refresh_token, old_refresh_token);
+
+    // 3. Verificăm că vechiul refresh token a fost invalidat în DB
+    let old_token_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM refresh_tokens WHERE token = $1")
+            .bind(old_refresh_token.as_str())
+            .fetch_one(&test_app.pool)
+            .await
+            .expect("query should succeed");
+
+    assert_eq!(old_token_count.0, 0, "old refresh token should be deleted");
+
+    // 4. Verificăm că noul refresh token există în DB
+    let new_token_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM refresh_tokens WHERE token = $1")
+            .bind(new_refresh_token)
+            .fetch_one(&test_app.pool)
+            .await
+            .expect("query should succeed");
+
+    assert_eq!(new_token_count.0, 1, "new refresh token should be persisted");
+}
