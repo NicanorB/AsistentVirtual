@@ -11,7 +11,7 @@ use axum::{
 };
 use serde::Serialize;
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use std::{net::SocketAddr, sync::Arc};
+use std::{fs, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
@@ -116,7 +116,35 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let database_url = std::env::var("DATABASE_URL").unwrap();
+    let database_url = if let Ok(database_url) = std::env::var("DATABASE_URL") {
+        database_url
+    } else {
+        let postgres_password = if let Ok(value) = std::env::var("POSTGRES_PASSWORD") {
+            if value.trim().is_empty() {
+                anyhow::bail!("POSTGRES_PASSWORD is set but empty");
+            }
+            value
+        } else {
+            let file_path = std::env::var("POSTGRES_PASSWORD_FILE").map_err(|_| {
+                anyhow::anyhow!(
+                    "DATABASE_URL is not set and neither POSTGRES_PASSWORD nor POSTGRES_PASSWORD_FILE are set"
+                )
+            })?;
+
+            let password = fs::read_to_string(&file_path)
+                .map_err(|err| anyhow::anyhow!("failed to read secret file {file_path}: {err}"))?;
+
+            let password = password.trim().to_string();
+
+            if password.is_empty() {
+                anyhow::bail!("secret loaded from {file_path} is empty");
+            }
+
+            password
+        };
+
+        format!("postgres://postgres:{postgres_password}@db:5432/postgres")
+    };
 
     let pool = PgPoolOptions::new()
         .max_connections(10)

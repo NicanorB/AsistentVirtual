@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fs, sync::Arc};
 
 use axum::{
     Json,
@@ -75,9 +75,36 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    fn read_env_or_file(env_key: &str, file_key: &str) -> anyhow::Result<String> {
+        if let Ok(value) = std::env::var(env_key) {
+            if !value.trim().is_empty() {
+                return Ok(value);
+            }
+        }
+
+        let file_path = std::env::var(file_key).map_err(|_| {
+            anyhow::anyhow!(
+                "{env_key} is not set and fallback secret file env {file_key} is not set"
+            )
+        })?;
+
+        let value = fs::read_to_string(&file_path)
+            .map_err(|err| anyhow::anyhow!("failed to read secret file {file_path}: {err}"))?;
+
+        let value = value.trim().to_string();
+
+        if value.is_empty() {
+            anyhow::bail!("secret loaded from {file_path} is empty");
+        }
+
+        Ok(value)
+    }
+
     pub fn from_env() -> anyhow::Result<Self> {
-        let jwt_access_secret = std::env::var("JWT_ACCESS_SECRET").unwrap();
-        let jwt_refresh_secret = std::env::var("JWT_REFRESH_SECRET").unwrap();
+        let jwt_access_secret =
+            Self::read_env_or_file("JWT_ACCESS_SECRET", "JWT_ACCESS_SECRET_FILE")?;
+        let jwt_refresh_secret =
+            Self::read_env_or_file("JWT_REFRESH_SECRET", "JWT_REFRESH_SECRET_FILE")?;
 
         Ok(Self {
             jwt_access_secret,
