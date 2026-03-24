@@ -1,19 +1,45 @@
 services:
-  db:
-    image: postgres:latest
-    environment:
-      POSTGRES_USER:
-      POSTGRES_PASSWORD:
-      POSTGRES_DB:
-    volumes:
-      - db_data:/var/lib/postgresql/data
-
-  backend:
-    build: ./backend
-
   frontend:
     build: ./frontend
     ports:
       - "80:80"
     depends_on:
       - backend
+
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    depends_on:
+      - db
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      JWT_ACCESS_SECRET_FILE: /run/secrets/jwt_access_secret
+      JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
+    secrets:
+      - postgres_password
+      - jwt_access_secret
+      - jwt_refresh_secret
+    volumes:
+      - backend_documents:/app/backend/documents
+
+volumes:
+  db_data:
+  backend_documents:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  jwt_access_secret:
+    file: ./secrets/jwt_access_secret.txt
+  jwt_refresh_secret:
+    file: ./secrets/jwt_refresh_secret.txt
