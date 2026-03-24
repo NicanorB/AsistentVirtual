@@ -15,7 +15,7 @@ services:
     secrets:
       - postgres_password
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql
 
   backend:
     build: ./backend
@@ -30,7 +30,7 @@ services:
       - jwt_access_secret
       - jwt_refresh_secret
     volumes:
-      - backend_documents:/app/backend/documents
+      - backend_documents:/app/documents
 
 volumes:
   db_data:
