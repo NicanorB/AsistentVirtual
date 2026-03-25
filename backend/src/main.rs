@@ -1,5 +1,6 @@
 mod auth;
 mod common;
+mod documents;
 
 #[cfg(test)]
 mod tests;
@@ -17,6 +18,7 @@ use uuid::Uuid;
 
 use auth::AuthUser;
 use common::{ApiError, AppConfig, AppState};
+use documents::router as documents_router;
 
 //
 // Configuration
@@ -93,9 +95,9 @@ fn build_router(state: AppState) -> Router {
         .route("/login", post(auth::login))
         .route("/refresh_token", post(auth::refresh_token));
 
-    let protected_routes = Router::new().route("/mock", get(mock_protected));
-    // Example:
-    // .route("/documents", get(list_my_documents));
+    let protected_routes = Router::new()
+        .route("/mock", get(mock_protected))
+        .merge(documents_router());
 
     Router::new()
         .route("/api/get_settings", get(get_settings))

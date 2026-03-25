@@ -408,6 +408,7 @@ mod tests {
             jwt_refresh_secret: "refresh-secret-for-tests".to_string(),
             access_ttl: Duration::minutes(5),
             refresh_ttl: Duration::days(30),
+            documents_dir: "".to_string(),
         }
     }
 
@@ -562,6 +563,7 @@ mod tests {
             jwt_refresh_secret: valid_cfg.jwt_refresh_secret.clone(),
             access_ttl: valid_cfg.access_ttl,
             refresh_ttl: valid_cfg.refresh_ttl,
+            documents_dir: valid_cfg.documents_dir.clone(),
         };
         let user_id = Uuid::new_v4();
         let token = mint_access_token(&other_cfg, user_id).expect("access token should be minted");

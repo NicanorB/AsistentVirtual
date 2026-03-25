@@ -1,5 +1,13 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+};
 
+use axum::{
+    body::Body,
+    http::{Request, header},
+};
+use serde_json::Value;
 use sqlx::{Connection, Executor, PgConnection, PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 
@@ -9,12 +17,14 @@ use crate::{
 };
 
 pub mod auth;
+pub mod documents;
 
 static TEST_DATABASE_URL: OnceLock<String> = OnceLock::new();
 
 pub(super) struct TestApp {
-    app: axum::Router,
-    pool: PgPool,
+    pub(super) app: axum::Router,
+    pub(super) pool: PgPool,
+    pub(super) config: Arc<AppConfig>,
     database_name: String,
 }
 
@@ -101,20 +111,119 @@ fn test_config() -> Arc<AppConfig> {
         jwt_refresh_secret: "integration-test-refresh-secret".to_string(),
         access_ttl: time::Duration::minutes(5),
         refresh_ttl: time::Duration::days(30),
+        documents_dir: test_documents_dir().to_string_lossy().into_owned(),
     })
+}
+
+fn test_documents_dir() -> PathBuf {
+    std::env::temp_dir().join(format!("asistent_virtual_test_docs_{}", Uuid::new_v4()))
+}
+
+pub(super) async fn send_json(
+    app: axum::Router,
+    method: &str,
+    uri: &str,
+    body: Value,
+) -> axum::response::Response {
+    let request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request should build");
+
+    tower::util::ServiceExt::oneshot(app, request)
+        .await
+        .expect("request should succeed")
+}
+
+pub(super) async fn send_multipart(
+    app: axum::Router,
+    method: &str,
+    uri: &str,
+    body: Vec<u8>,
+    boundary: &str,
+    authorization: Option<&str>,
+) -> axum::response::Response {
+    let mut builder = Request::builder().method(method).uri(uri).header(
+        header::CONTENT_TYPE,
+        format!("multipart/form-data; boundary={boundary}"),
+    );
+
+    if let Some(token) = authorization {
+        builder = builder.header(header::AUTHORIZATION, token);
+    }
+
+    let request = builder
+        .body(Body::from(body))
+        .expect("multipart request should build");
+
+    tower::util::ServiceExt::oneshot(app, request)
+        .await
+        .expect("request should succeed")
+}
+
+pub(super) async fn response_json(response: axum::response::Response) -> Value {
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+
+    serde_json::from_slice(&bytes).expect("response body should be valid json")
+}
+
+pub(super) fn multipart_body(
+    field_name: &str,
+    file_name: &str,
+    content_type: &str,
+    contents: &[u8],
+    boundary: &str,
+) -> Vec<u8> {
+    let mut body = Vec::new();
+
+    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(
+        format!(
+            "Content-Disposition: form-data; name=\"{field_name}\"; filename=\"{file_name}\"\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
+    body.extend_from_slice(contents);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+
+    body
+}
+
+pub(super) async fn auth_header_for(app: axum::Router, username: String, password: &str) -> String {
+    let response = send_json(
+        app,
+        "POST",
+        "/api/auth/signup",
+        serde_json::json!({
+            "username": username,
+            "password": password,
+        }),
+    )
+    .await;
+
+    let body = response_json(response).await;
+    format!("Bearer {}", body["access_token"].as_str().unwrap())
 }
 
 pub(super) async fn test_app() -> TestApp {
     let (pool, database_name) = create_test_pool().await;
 
+    let config = test_config();
     let state = AppState {
         pool: pool.clone(),
-        config: test_config(),
+        config: config.clone(),
     };
 
     TestApp {
         app: build_router(state),
         pool,
+        config,
         database_name,
     }
 }

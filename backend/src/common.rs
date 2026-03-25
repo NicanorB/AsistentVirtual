@@ -72,6 +72,8 @@ pub struct AppConfig {
     pub access_ttl: Duration,
     /// Refresh token validity: longer-lived; used to mint new access tokens.
     pub refresh_ttl: Duration,
+    /// Directory where uploaded documents are stored.
+    pub documents_dir: String,
 }
 
 impl AppConfig {
@@ -105,12 +107,16 @@ impl AppConfig {
             Self::read_env_or_file("JWT_ACCESS_SECRET", "JWT_ACCESS_SECRET_FILE")?;
         let jwt_refresh_secret =
             Self::read_env_or_file("JWT_REFRESH_SECRET", "JWT_REFRESH_SECRET_FILE")?;
+        let documents_dir = std::env::var("DOCUMENTS_DIR").map_err(|_| {
+            anyhow::anyhow!("DOCUMENTS_DIR is not set")
+        })?;
 
         Ok(Self {
             jwt_access_secret,
             jwt_refresh_secret,
             access_ttl: Duration::minutes(5),
             refresh_ttl: Duration::days(30),
+            documents_dir,
         })
     }
 }
