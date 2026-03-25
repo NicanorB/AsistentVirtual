@@ -5,89 +5,13 @@ mod documents;
 #[cfg(test)]
 mod tests;
 
-use axum::{
-    Json, Router,
-    extract::State,
-    routing::{get, post},
-};
-use serde::Serialize;
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use axum::{Router, routing::post};
+use sqlx::postgres::PgPoolOptions;
 use std::{fs, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use uuid::Uuid;
 
-use auth::AuthUser;
-use common::{ApiError, AppConfig, AppState};
+use common::{AppConfig, AppState};
 use documents::router as documents_router;
-
-//
-// Configuration
-//
-
-#[derive(Serialize)]
-struct MockProtectedResponse {
-    ok: bool,
-    user_id: String,
-}
-
-async fn mock_protected(user: AuthUser) -> Json<MockProtectedResponse> {
-    Json(MockProtectedResponse {
-        ok: true,
-        user_id: user.user_id.to_string(),
-    })
-}
-
-#[derive(Serialize)]
-struct Settings {
-    name: String,
-    status: String,
-}
-
-async fn get_settings() -> Json<Settings> {
-    Json(Settings {
-        name: "AsistentVirtual".to_string(),
-        status: "OK".to_string(),
-    })
-}
-
-//
-// Example of an authenticated DB-backed endpoint pattern
-// (kept as a reference; you can remove or expand it later).
-//
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, sqlx::FromRow)]
-struct DocumentRow {
-    id: Uuid,
-    user_id: Uuid,
-    title: String,
-    body: String,
-}
-
-#[allow(dead_code)]
-async fn list_my_documents(
-    State(pool): State<PgPool>,
-    user: AuthUser,
-) -> Result<Json<Vec<DocumentRow>>, ApiError> {
-    let docs = sqlx::query_as::<_, DocumentRow>(
-        r#"
-        SELECT id, user_id, title, file
-        FROM documents
-        WHERE user_id = $1
-        ORDER BY id DESC
-        "#,
-    )
-    .bind(user.user_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    Ok(Json(docs))
-}
-
-//
-// App bootstrap
-//
 
 fn build_router(state: AppState) -> Router {
     let auth_routes = Router::new()
@@ -95,12 +19,9 @@ fn build_router(state: AppState) -> Router {
         .route("/login", post(auth::login))
         .route("/refresh_token", post(auth::refresh_token));
 
-    let protected_routes = Router::new()
-        .route("/mock", get(mock_protected))
-        .merge(documents_router());
+    let protected_routes = Router::new().merge(documents_router());
 
     Router::new()
-        .route("/api/get_settings", get(get_settings))
         .nest("/api/auth", auth_routes)
         .nest("/api", protected_routes)
         .with_state(state)
