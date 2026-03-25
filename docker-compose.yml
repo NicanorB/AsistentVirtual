@@ -14,7 +14,6 @@ services:
     image: postgres:latest
     environment:
       POSTGRES_PASSWORD: password
-      DOCUMENTS_DIR: /tmp/documents
 
   backend:
     image: rust:latest
@@ -26,3 +25,4 @@ services:
       JWT_ACCESS_SECRET: dev_access_secret
       JWT_REFRESH_SECRET: dev_refresh_secret
       DATABASE_URL: postgres://postgres:password@db:5432/postgres
+      DOCUMENTS_DIR: /tmp/documents
