@@ -25,6 +25,7 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       JWT_ACCESS_SECRET_FILE: /run/secrets/jwt_access_secret
       JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
+      DOCUMENTS_DIR: /app/documents
     secrets:
       - postgres_password
       - jwt_access_secret

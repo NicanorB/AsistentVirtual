@@ -1,36 +1,8 @@
-use axum::{
-    body::Body,
-    http::{Request, StatusCode},
-};
-use serde_json::{Value, json};
-use tower::util::ServiceExt;
+use axum::http::StatusCode;
+use serde_json::json;
 use uuid::Uuid;
 
-use super::test_app;
-
-async fn send_json(
-    app: axum::Router,
-    method: &str,
-    uri: &str,
-    body: Value,
-) -> axum::response::Response {
-    let request = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .expect("request should build");
-
-    app.oneshot(request).await.expect("request should succeed")
-}
-
-async fn response_json(response: axum::response::Response) -> Value {
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("response body should be readable");
-
-    serde_json::from_slice(&bytes).expect("response body should be valid json")
-}
+use super::{response_json, send_json, test_app};
 
 #[tokio::test]
 async fn signup_returns_token_pair_and_persists_user_and_refresh_token() {
