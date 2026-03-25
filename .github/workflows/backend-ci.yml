@@ -12,7 +12,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector:latest
+        image: pgvector/pgvector:0.8.2-pg18-trixie
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
