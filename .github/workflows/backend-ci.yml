@@ -12,7 +12,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector:latest
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
