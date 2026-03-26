@@ -11,8 +11,7 @@ use axum::{
     response::IntoResponse,
     routing::{delete, get},
 };
-use docx_lite::DocxFile;
-use pdf_oxide::pdf::Document as PdfDocument;
+use pdf_oxide::PdfDocument;
 use pgvector::Vector;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -57,13 +56,14 @@ pub struct DeleteDocumentResponse {
     pub ok: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct EmbeddingRequest {
     content: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct EmbeddingResponse {
+    index: u32,
     embedding: Vec<f32>,
 }
 
@@ -312,19 +312,10 @@ async fn extract_text_from_pdf(file_path: &Path) -> Result<String, ApiError> {
     let path = file_path.to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        let document = PdfDocument::open(&path).map_err(|_| ApiError::Internal)?;
-        let mut text = String::new();
-
-        for page in document.pages() {
-            let page = page.map_err(|_| ApiError::Internal)?;
-            let page_text = page.text().map_err(|_| ApiError::Internal)?;
-            if !page_text.trim().is_empty() {
-                if !text.is_empty() {
-                    text.push('\n');
-                }
-                text.push_str(&page_text);
-            }
-        }
+        let mut document = PdfDocument::open(&path).map_err(|_| ApiError::Internal)?;
+        let text = document
+            .extract_all_text()
+            .map_err(|_| ApiError::Internal)?;
 
         Ok(clean_extracted_text(text))
     })
@@ -336,23 +327,7 @@ async fn extract_text_from_docx(file_path: &Path) -> Result<String, ApiError> {
     let path = file_path.to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(&path).map_err(|_| ApiError::Internal)?;
-        let docx = DocxFile::from_file(file)
-            .map_err(|_| ApiError::Internal)?
-            .parse()
-            .map_err(|_| ApiError::Internal)?;
-
-        let mut text = String::new();
-
-        for paragraph in docx.document.body.content.iter() {
-            let paragraph_text = format!("{paragraph:?}");
-            if !paragraph_text.trim().is_empty() {
-                if !text.is_empty() {
-                    text.push('\n');
-                }
-                text.push_str(&paragraph_text);
-            }
-        }
+        let text = docx_lite::extract_text(path).map_err(|_| ApiError::Internal)?;
 
         Ok(clean_extracted_text(text))
     })
