@@ -9,6 +9,10 @@ axum = { version = "0.8.8", features = ["macros", "multipart"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tokio = { version = "1.49.0", features = ["full"] }
+reqwest = { version = "0.12.23", features = ["json", "rustls-tls"] }
+pdf_oxide = "0.3.17"
+docx-lite = "0.2.0"
+pgvector = { version = "0.4", features = ["sqlx"] }
 
 # Postgres + SQLx
 sqlx = { version = "0.8.2", features = ["runtime-tokio", "postgres", "macros", "uuid", "time", "migrate"] }
