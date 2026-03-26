@@ -1,40 +1,20 @@
-:root {
-    font-family:
-        Inter,
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        sans-serif;
-    line-height: 1.5;
-    font-weight: 400;
-    color-scheme: dark light;
-    color: rgba(255, 255, 255, 0.92);
-    background: radial-gradient(
-        circle at top,
-        #2f376b 0%,
-        #171923 45%,
-        #0f1117 100%
-    );
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-}
-
-* {
+/* Keep global CSS minimal; the auth module styling lives in `App.css`. */
+*,
+*::before,
+*::after {
     box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
-html {
-    min-width: 320px;
-    min-height: 100%;
+html,
+body,
+#root {
+    height: 100%;
 }
 
 body {
     margin: 0;
-    min-width: 320px;
-    min-height: 100vh;
 }
 
 body,
@@ -53,61 +33,4 @@ button,
 input,
 textarea {
     outline: none;
-}
-
-button {
-    border-radius: 10px;
-    border: 1px solid transparent;
-    padding: 0.8rem 1rem;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #ffffff;
-    background: linear-gradient(135deg, #646cff 0%, #7c83ff 100%);
-    cursor: pointer;
-    transition:
-        transform 0.15s ease,
-        box-shadow 0.2s ease,
-        border-color 0.2s ease,
-        opacity 0.2s ease;
-}
-
-button:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 12px 24px rgba(100, 108, 255, 0.25);
-}
-
-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    box-shadow: none;
-}
-
-h1,
-h2,
-h3,
-p,
-ul,
-pre {
-    margin-top: 0;
-}
-
-@media (prefers-color-scheme: light) {
-    :root {
-        color: #1f2937;
-        background: radial-gradient(
-            circle at top,
-            #eef2ff 0%,
-            #f8fafc 45%,
-            #eef2f7 100%
-        );
-    }
-
-    button {
-        color: #ffffff;
-        background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
-    }
-
-    button:hover:not(:disabled) {
-        box-shadow: 0 12px 24px rgba(79, 70, 229, 0.2);
-    }
 }
