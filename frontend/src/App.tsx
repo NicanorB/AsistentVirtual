@@ -796,26 +796,7 @@ export default function App() {
                   <span>or continue with</span>
                 </div>
 
-                <div className="social-row">
-                  <button
-                    type="button"
-                    className="social-btn"
-                    disabled
-                    onClick={() => handleSocialClick("Google")}
-                  >
-                    <GoogleIcon />
-                    Google
-                  </button>
-                  <button
-                    type="button"
-                    className="social-btn"
-                    disabled
-                    onClick={() => handleSocialClick("GitHub")}
-                  >
-                    <GitHubIcon />
-                    GitHub
-                  </button>
-                </div>
+
               </form>
             </div>
 
