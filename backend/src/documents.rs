@@ -99,9 +99,7 @@ pub async fn upload_document(
     let documents_dir = documents_dir_from_config(&state.config)?;
     ensure_documents_dir_exists(&documents_dir).await?;
 
-    let mut saved_document: Option<UploadDocumentResponse> = None;
-
-    while let Some(field) = multipart
+    let saved_document = if let Some(field) = multipart
         .next_field()
         .await
         .map_err(|_| ApiError::BadRequest("invalid multipart form data"))?
@@ -144,20 +142,19 @@ pub async fn upload_document(
         .await;
 
         match insert_result {
-            Ok(_) => {
-                saved_document = Some(UploadDocumentResponse {
-                    id: document_id,
-                    title: sanitized_original_name,
-                    file: randomized_name,
-                });
-                break;
-            }
+            Ok(_) => Some(UploadDocumentResponse {
+                id: document_id,
+                title: sanitized_original_name,
+                file: randomized_name,
+            }),
             Err(_) => {
                 let _ = tokio::fs::remove_file(&destination_path).await;
                 return Err(ApiError::Internal);
             }
         }
-    }
+    } else {
+        None
+    };
 
     let saved_document = saved_document.ok_or(ApiError::BadRequest("no file provided"))?;
     Ok((StatusCode::CREATED, Json(saved_document)))
