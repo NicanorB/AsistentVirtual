@@ -78,10 +78,10 @@ pub struct AppConfig {
 
 impl AppConfig {
     fn read_env_or_file(env_key: &str, file_key: &str) -> anyhow::Result<String> {
-        if let Ok(value) = std::env::var(env_key) {
-            if !value.trim().is_empty() {
-                return Ok(value);
-            }
+        if let Ok(value) = std::env::var(env_key)
+            && !value.trim().is_empty()
+        {
+            return Ok(value);
         }
 
         let file_path = std::env::var(file_key).map_err(|_| {
@@ -107,9 +107,8 @@ impl AppConfig {
             Self::read_env_or_file("JWT_ACCESS_SECRET", "JWT_ACCESS_SECRET_FILE")?;
         let jwt_refresh_secret =
             Self::read_env_or_file("JWT_REFRESH_SECRET", "JWT_REFRESH_SECRET_FILE")?;
-        let documents_dir = std::env::var("DOCUMENTS_DIR").map_err(|_| {
-            anyhow::anyhow!("DOCUMENTS_DIR is not set")
-        })?;
+        let documents_dir = std::env::var("DOCUMENTS_DIR")
+            .map_err(|_| anyhow::anyhow!("DOCUMENTS_DIR is not set"))?;
 
         Ok(Self {
             jwt_access_secret,
