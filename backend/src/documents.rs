@@ -394,7 +394,7 @@ async fn fetch_embedding(client: &Client, host: &str, content: &str) -> Result<V
 }
 
 fn embedding_host_from_env() -> Result<String, ApiError> {
-    std::env::var("HOST")
+    std::env::var("EMBEDDING_HOST")
         .map(|value| value.trim().to_string())
         .ok()
         .filter(|value| !value.is_empty())
