@@ -389,17 +389,12 @@ export default function AppAuth() {
 
       if (mode === "signup") {
         const trimmedName = username.trim();
-        const trimmedEmail = email.trim();
         const pass = password;
         const pass2 = password2;
 
         let valid = true;
         if (!trimmedName) {
           setRegNameErr("Display name required");
-          valid = false;
-        }
-        if (!trimmedEmail || !/\S+@\S+\.\S+/.test(trimmedEmail)) {
-          setRegEmailErr("Valid email required");
           valid = false;
         }
         if (pass.length < 8) {
@@ -496,7 +491,7 @@ export default function AppAuth() {
     setMode("login");
     setUsername("");
     setPassword("");
-    setEmail("");
+    //setEmail("");
     setPassword2("");
     setDocuments([]);
   };
@@ -668,7 +663,7 @@ export default function AppAuth() {
                 </div>
 
                 <div className="field">
-                  <label>Access Code</label>
+                  <label>Password</label>
                   <div className="input-wrap">
                     <svg className="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -750,7 +745,7 @@ export default function AppAuth() {
             <div className={`form-panel ${registerActive ? "active" : ""}`} id="form-register">
               <form onSubmit={handleLoginOrSignup}>
                 <div className="field">
-                  <label>Display Name</label>
+                  <label>Name</label>
                   <div className="input-wrap">
                     <svg className="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -769,25 +764,7 @@ export default function AppAuth() {
                   <div className="error-msg">{regNameErr}</div>
                 </div>
 
-                <div className="field">
-                  <label>Email Address</label>
-                  <div className="input-wrap">
-                    <svg className="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
-                      <polyline points="22,6 12,13 2,6"></polyline>
-                    </svg>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Enter your email"
-                      autoComplete="email"
-                      disabled={isSubmittingAuth || successOverlay.show}
-                      className={regEmailErr ? "error-field" : ""}
-                    />
-                  </div>
-                  <div className="error-msg">{regEmailErr}</div>
-                </div>
+                
 
                 <div className="field">
                   <label>Access Code</label>
@@ -824,7 +801,7 @@ export default function AppAuth() {
                 </div>
 
                 <div className="field" style={{ marginBottom: 20 }}>
-                  <label>Confirm Code</label>
+                  <label>Confirm Password</label>
                   <div className="input-wrap">
                     <svg className="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -866,19 +843,7 @@ export default function AppAuth() {
                   <span>or continue with</span>
                 </div>
 
-                <div className="social-row">
-                  <button type="button" className="social-btn" disabled onClick={() => handleSocialClick("Google")}>
-                    <GoogleIcon />
-                    Google
-                  </button>
-                  <button type="button" className="social-btn" disabled onClick={() => handleSocialClick("GitHub")}>
-                    <GitHubIcon />
-                    GitHub
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
+                
 
           <div className="bottom-note" id="bottom-note">
             {mode === "login" ? (
