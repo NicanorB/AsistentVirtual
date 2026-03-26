@@ -26,3 +26,16 @@ services:
       JWT_REFRESH_SECRET: dev_refresh_secret
       DATABASE_URL: postgres://postgres:password@db:5432/postgres
       DOCUMENTS_DIR: /tmp/documents
+
+  llama_embedding:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    ports:
+      - "8080:8080"
+    command:
+      - "--embeddings"
+      - "--hf-repo"
+      - "enacimie/Qwen3-Embedding-0.6B-Q4_K_M-GGUF"
+      - "--hf-file"
+      - "qwen3-embedding-0.6b-q4_k_m.gguf"
+      - "-c"
+      - "2048"
