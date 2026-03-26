@@ -7,12 +7,15 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path as AxumPath, State},
-    handler::Handler,
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get},
 };
-use serde::Serialize;
+use docx_lite::DocxFile;
+use pdf_oxide::pdf::Document as PdfDocument;
+use pgvector::Vector;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
@@ -24,6 +27,8 @@ use crate::{
 
 const MAX_FILE_SIZE_BYTES: usize = 50 * 1024 * 1024;
 const ALLOWED_EXTENSIONS: &[&str] = &["pdf", "docx", "txt"];
+const CHUNK_SIZE_CHARS: usize = 500;
+const CHUNK_OVERLAP_CHARS: usize = 50;
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct DocumentRow {
@@ -50,6 +55,16 @@ pub struct UploadDocumentResponse {
 #[derive(Debug, Serialize)]
 pub struct DeleteDocumentResponse {
     pub ok: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmbeddingRequest {
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmbeddingResponse {
+    embedding: Vec<f32>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -142,11 +157,22 @@ pub async fn upload_document(
         .await;
 
         match insert_result {
-            Ok(_) => Some(UploadDocumentResponse {
-                id: document_id,
-                title: sanitized_original_name,
-                file: randomized_name,
-            }),
+            Ok(_) => {
+                process_uploaded_document(
+                    &state,
+                    document_id,
+                    &extension,
+                    &destination_path,
+                    &sanitized_original_name,
+                )
+                .await?;
+
+                Some(UploadDocumentResponse {
+                    id: document_id,
+                    title: sanitized_original_name,
+                    file: randomized_name,
+                })
+            }
             Err(_) => {
                 let _ = tokio::fs::remove_file(&destination_path).await;
                 return Err(ApiError::Internal);
@@ -198,6 +224,205 @@ pub async fn delete_document(
     }
 
     Ok(Json(DeleteDocumentResponse { ok: true }))
+}
+
+async fn process_uploaded_document(
+    state: &AppState,
+    document_id: Uuid,
+    extension: &str,
+    file_path: &Path,
+    file_name: &str,
+) -> Result<(), ApiError> {
+    let extracted_text = extract_document_text(extension, file_path).await?;
+
+    let chunks = split_text_into_chunks(&extracted_text, CHUNK_SIZE_CHARS, CHUNK_OVERLAP_CHARS);
+    let host = embedding_host_from_env()?;
+    let client = Client::new();
+
+    let mut transaction = state.pool.begin().await.map_err(|_| ApiError::Internal)?;
+
+    sqlx::query("DELETE FROM document_chunks WHERE document_id = $1")
+        .bind(document_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    for chunk in chunks {
+        if chunk.trim().is_empty() {
+            continue;
+        }
+
+        let embedding = fetch_embedding(&client, &host, &chunk).await?;
+        if embedding.len() != 1024 {
+            return Err(ApiError::Internal);
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO document_chunks (id, document_id, text_content, embedding)
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(document_id)
+        .bind(&chunk)
+        .bind(Vector::from(embedding))
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE documents
+        SET processed = true
+        WHERE id = $1
+        "#,
+    )
+    .bind(document_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    transaction.commit().await.map_err(|_| ApiError::Internal)?;
+
+    let _ = file_name;
+    Ok(())
+}
+
+async fn extract_document_text(extension: &str, file_path: &Path) -> Result<String, ApiError> {
+    match extension {
+        "txt" => extract_text_from_txt(file_path).await,
+        "pdf" => extract_text_from_pdf(file_path).await,
+        "docx" => extract_text_from_docx(file_path).await,
+        _ => Err(ApiError::BadRequest(
+            "unsupported file type, allowed: pdf, docx, txt",
+        )),
+    }
+}
+
+async fn extract_text_from_txt(file_path: &Path) -> Result<String, ApiError> {
+    tokio::fs::read_to_string(file_path)
+        .await
+        .map(clean_extracted_text)
+        .map_err(|_| ApiError::Internal)
+}
+
+async fn extract_text_from_pdf(file_path: &Path) -> Result<String, ApiError> {
+    let path = file_path.to_path_buf();
+
+    tokio::task::spawn_blocking(move || {
+        let document = PdfDocument::open(&path).map_err(|_| ApiError::Internal)?;
+        let mut text = String::new();
+
+        for page in document.pages() {
+            let page = page.map_err(|_| ApiError::Internal)?;
+            let page_text = page.text().map_err(|_| ApiError::Internal)?;
+            if !page_text.trim().is_empty() {
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(&page_text);
+            }
+        }
+
+        Ok(clean_extracted_text(text))
+    })
+    .await
+    .map_err(|_| ApiError::Internal)?
+}
+
+async fn extract_text_from_docx(file_path: &Path) -> Result<String, ApiError> {
+    let path = file_path.to_path_buf();
+
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::open(&path).map_err(|_| ApiError::Internal)?;
+        let docx = DocxFile::from_file(file)
+            .map_err(|_| ApiError::Internal)?
+            .parse()
+            .map_err(|_| ApiError::Internal)?;
+
+        let mut text = String::new();
+
+        for paragraph in docx.document.body.content.iter() {
+            let paragraph_text = format!("{paragraph:?}");
+            if !paragraph_text.trim().is_empty() {
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(&paragraph_text);
+            }
+        }
+
+        Ok(clean_extracted_text(text))
+    })
+    .await
+    .map_err(|_| ApiError::Internal)?
+}
+
+fn clean_extracted_text(text: String) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn split_text_into_chunks(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
+    if text.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let characters: Vec<char> = text.chars().collect();
+    let mut chunks = Vec::new();
+    let mut start = 0usize;
+    let step = chunk_size.saturating_sub(overlap).max(1);
+
+    while start < characters.len() {
+        let end = (start + chunk_size).min(characters.len());
+        let chunk: String = characters[start..end].iter().collect();
+        let chunk = chunk.trim().to_string();
+
+        if !chunk.is_empty() {
+            chunks.push(chunk);
+        }
+
+        if end == characters.len() {
+            break;
+        }
+
+        start += step;
+    }
+
+    chunks
+}
+
+async fn fetch_embedding(client: &Client, host: &str, content: &str) -> Result<Vec<f32>, ApiError> {
+    let url = format!("{}/embedding", host.trim_end_matches('/'));
+
+    let response = client
+        .post(url)
+        .json(&EmbeddingRequest {
+            content: content.to_string(),
+        })
+        .send()
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    if !response.status().is_success() {
+        return Err(ApiError::Internal);
+    }
+
+    let embedding = response
+        .json::<EmbeddingResponse>()
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    Ok(embedding.embedding)
+}
+
+fn embedding_host_from_env() -> Result<String, ApiError> {
+    std::env::var("HOST")
+        .map(|value| value.trim().to_string())
+        .ok()
+        .filter(|value| !value.is_empty())
+        .ok_or(ApiError::Internal)
 }
 
 fn documents_dir_from_config(config: &Arc<AppConfig>) -> Result<PathBuf, ApiError> {
