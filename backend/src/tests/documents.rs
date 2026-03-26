@@ -2,6 +2,7 @@ use std::{path::Path, time::Duration};
 
 use axum::http::StatusCode;
 use serde_json::json;
+use sqlx::Row;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -50,11 +51,10 @@ async fn upload_document_requires_authentication() {
 }
 
 #[tokio::test]
-async fn upload_document_persists_row_and_file() {
+async fn upload_document_persists_row_file_processed_flag_and_embeddings() {
     let test_app = test_app().await;
     let username = format!("docs-upload-{}", Uuid::new_v4());
-    let auth_header =
-        auth_header_for(test_app.app.clone(), username, "very-secure-password").await;
+    let auth_header = auth_header_for(test_app.app.clone(), username, "very-secure-password").await;
 
     let boundary = format!("boundary-{}", Uuid::new_v4());
     let file_name = "report.txt";
@@ -74,10 +74,8 @@ async fn upload_document_persists_row_and_file() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     let json = response_json(response).await;
-    let document_id = json["id"]
-        .as_str()
-        .expect("document id should be returned")
-        .to_string();
+    let document_id = Uuid::parse_str(json["id"].as_str().expect("document id should be returned"))
+        .expect("document id should be valid uuid");
     let stored_title = json["title"]
         .as_str()
         .expect("document title should be returned")
@@ -91,15 +89,22 @@ async fn upload_document_persists_row_and_file() {
     assert_ne!(stored_file, file_name);
     assert!(stored_file.ends_with(".txt"));
 
-    let db_row: (String, String,) =
-        sqlx::query_as("SELECT title, file FROM documents WHERE id = $1")
-            .bind(Uuid::parse_str(&document_id).expect("document id should be valid uuid"))
-            .fetch_one(&test_app.pool)
-            .await
-            .expect("document row should exist");
+    let db_row = sqlx::query("SELECT title, file, processed FROM documents WHERE id = $1")
+        .bind(document_id)
+        .fetch_one(&test_app.pool)
+        .await
+        .expect("document row should exist");
 
-    assert_eq!(db_row.0, file_name);
-    assert_eq!(db_row.1, stored_file);
+    let stored_title_in_db: String = db_row.get("title");
+    let stored_file_in_db: String = db_row.get("file");
+    let processed: bool = db_row.get("processed");
+
+    assert_eq!(stored_title_in_db, file_name);
+    assert_eq!(stored_file_in_db, stored_file);
+    assert!(
+        processed,
+        "document should be marked as processed after upload"
+    );
 
     let stored_path = Path::new(&test_app.config.documents_dir).join(&stored_file);
     let stored_bytes = tokio::fs::read(&stored_path)
@@ -107,6 +112,112 @@ async fn upload_document_persists_row_and_file() {
         .expect("uploaded file should be stored on disk");
 
     assert_eq!(stored_bytes, contents);
+
+    let chunk_rows = sqlx::query(
+        "SELECT text_content, vector_dims(embedding) AS embedding_dims FROM document_chunks WHERE document_id = $1 ORDER BY created_at ASC, id ASC",
+    )
+    .bind(document_id)
+    .fetch_all(&test_app.pool)
+    .await
+    .expect("document chunks should be queryable");
+
+    assert_eq!(
+        chunk_rows.len(),
+        1,
+        "short text file should produce one chunk"
+    );
+
+    let first_chunk_text: String = chunk_rows[0].get("text_content");
+    let embedding_dims: i32 = chunk_rows[0].get("embedding_dims");
+
+    assert_eq!(
+        first_chunk_text,
+        "document contents for upload integration test"
+    );
+    assert_eq!(
+        embedding_dims, 1024,
+        "embedding should have 1024 dimensions"
+    );
+}
+
+#[tokio::test]
+async fn upload_document_splits_long_text_into_overlapping_embedded_chunks() {
+    let test_app = test_app().await;
+    let username = format!("docs-chunks-{}", Uuid::new_v4());
+    let auth_header = auth_header_for(test_app.app.clone(), username, "very-secure-password").await;
+
+    let boundary = format!("boundary-{}", Uuid::new_v4());
+    let file_name = "long-report.txt";
+    let long_text = "A".repeat(950);
+    let body = multipart_body(
+        "file",
+        file_name,
+        "text/plain",
+        long_text.as_bytes(),
+        &boundary,
+    );
+
+    let response = send_multipart(
+        test_app.app.clone(),
+        "POST",
+        "/api/documents",
+        body,
+        &boundary,
+        Some(&auth_header),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let json = response_json(response).await;
+    let document_id = Uuid::parse_str(json["id"].as_str().expect("document id should be returned"))
+        .expect("document id should be valid uuid");
+
+    let chunk_rows = sqlx::query(
+        "SELECT text_content, vector_dims(embedding) AS embedding_dims FROM document_chunks WHERE document_id = $1 ORDER BY created_at ASC, id ASC",
+    )
+    .bind(document_id)
+    .fetch_all(&test_app.pool)
+    .await
+    .expect("document chunks should be queryable");
+
+    assert_eq!(
+        chunk_rows.len(),
+        2,
+        "950 chars should split into two chunks with 500/50 settings"
+    );
+
+    let first_chunk: String = chunk_rows[0].get("text_content");
+    let second_chunk: String = chunk_rows[1].get("text_content");
+    let first_dims: i32 = chunk_rows[0].get("embedding_dims");
+    let second_dims: i32 = chunk_rows[1].get("embedding_dims");
+
+    assert_eq!(first_chunk.chars().count(), 500);
+    assert_eq!(second_chunk.chars().count(), 500);
+    assert_eq!(first_dims, 1024);
+    assert_eq!(second_dims, 1024);
+
+    let first_suffix: String = first_chunk
+        .chars()
+        .skip(first_chunk.chars().count() - 50)
+        .collect();
+    let second_prefix: String = second_chunk.chars().take(50).collect();
+
+    assert_eq!(
+        first_suffix, second_prefix,
+        "adjacent chunks should overlap by 50 chars"
+    );
+
+    let processed: bool = sqlx::query_scalar("SELECT processed FROM documents WHERE id = $1")
+        .bind(document_id)
+        .fetch_one(&test_app.pool)
+        .await
+        .expect("document processed flag should be queryable");
+
+    assert!(
+        processed,
+        "document should be marked as processed after chunk embeddings are stored"
+    );
 }
 
 #[tokio::test]
@@ -166,8 +277,7 @@ async fn list_documents_returns_only_current_users_documents() {
     .await;
     assert_eq!(second_response.status(), StatusCode::CREATED);
 
-    let list_response = send_json(test_app.app.clone(), "GET", "/api/documents", json!(null))
-        .await;
+    let list_response = send_json(test_app.app.clone(), "GET", "/api/documents", json!(null)).await;
 
     assert_eq!(list_response.status(), StatusCode::UNAUTHORIZED);
 
@@ -193,11 +303,16 @@ async fn list_documents_returns_only_current_users_documents() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = response_json(response).await;
-    let documents = body.as_array().expect("documents response should be an array");
+    let documents = body
+        .as_array()
+        .expect("documents response should be an array");
 
     assert_eq!(documents.len(), 1);
     assert_eq!(documents[0]["title"], "mine.txt");
-    assert_eq!(documents[0]["file"].as_str().unwrap().ends_with(".txt"), true);
+    assert_eq!(
+        documents[0]["file"].as_str().unwrap().ends_with(".txt"),
+        true
+    );
 }
 
 #[tokio::test]
