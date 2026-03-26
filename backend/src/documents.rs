@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path as AxumPath, State},
+    handler::Handler as _,
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get},
@@ -63,7 +64,7 @@ struct EmbeddingRequest {
 
 #[derive(Debug, Deserialize)]
 struct EmbeddingResponse {
-    index: u32,
+    _index: u32,
     embedding: Vec<f32>,
 }
 
