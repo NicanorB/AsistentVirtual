@@ -771,10 +771,6 @@ export default function App() {
                   </div>
                 ) : null}
 
-                <div className="or-divider">
-                  <span>or continue with</span>
-                </div>
-
 
               </form>
             </div>
@@ -927,10 +923,6 @@ export default function App() {
                     {formErr}
                   </div>
                 ) : null}
-
-                <div className="or-divider">
-                  <span>or continue with</span>
-                </div>
               </form>
             </div>
           </div>
