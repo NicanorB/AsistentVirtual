@@ -154,10 +154,6 @@ async fn handle_chat_query(
             Err(_) => return Err(ApiError::Internal),
         };
 
-        if chunk.trim().is_empty() {
-            continue;
-        }
-
         let event = StreamChunk {
             content: chunk,
             stop: false,
