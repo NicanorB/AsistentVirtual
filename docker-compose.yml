@@ -26,6 +26,7 @@ services:
       JWT_REFRESH_SECRET: dev_refresh_secret
       DATABASE_URL: postgres://postgres:password@db:5432/postgres
       DOCUMENTS_DIR: /tmp/documents
+      EMBEDDINGS_HOST: http://llama_embedding:8080
 
   llama_embedding:
     image: ghcr.io/ggml-org/llama.cpp:server

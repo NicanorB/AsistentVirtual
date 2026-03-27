@@ -237,7 +237,7 @@ async fn process_uploaded_document(
     let extracted_text = extract_document_text(extension, file_path).await?;
 
     let chunks = split_text_into_chunks(&extracted_text, CHUNK_SIZE_CHARS, CHUNK_OVERLAP_CHARS);
-    let host = embedding_host_from_env()?;
+    let host = state.config.embeddings_host.clone();
     let client = Client::new();
 
     let mut transaction = state.pool.begin().await.map_err(|_| ApiError::Internal)?;
@@ -391,14 +391,6 @@ async fn fetch_embedding(client: &Client, host: &str, content: &str) -> Result<V
         .map_err(|_| ApiError::Internal)?;
 
     Ok(embedding.embedding)
-}
-
-fn embedding_host_from_env() -> Result<String, ApiError> {
-    std::env::var("EMBEDDING_HOST")
-        .map(|value| value.trim().to_string())
-        .ok()
-        .filter(|value| !value.is_empty())
-        .ok_or(ApiError::Internal)
 }
 
 fn documents_dir_from_config(config: &Arc<AppConfig>) -> Result<PathBuf, ApiError> {
