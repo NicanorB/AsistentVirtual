@@ -225,7 +225,7 @@ fn build_prompt(query: &str, sources: &[SourceItem]) -> String {
 
     format!(
         "You are a helpful assistant. Answer the user's question using the provided context when relevant. \
-If the context is insufficient, say so clearly and still try to be helpful. Do not invent citations.\n\n\
+If the context is insufficient, say so clearly and still try to be helpful. Do not directly quote the given context.\n\n\
 Context:\n{}\n\n\
 User question:\n{}\n\n\
 Answer:",
