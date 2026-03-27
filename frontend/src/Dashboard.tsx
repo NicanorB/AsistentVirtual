@@ -2,14 +2,13 @@ import type { ChangeEvent, FormEvent } from "react";
 import type { ChatMessage, ChatSourceItem, DocumentRow } from "./types/auth";
 
 type DashboardProps = {
+  username?: string;
   accessToken: string;
-  expiresInSeconds: number;
   isRefreshing: boolean;
   docsLoading: boolean;
   docsError: string;
   documents: DocumentRow[];
   onLogout: () => void;
-  decodeJwtSub: (token: string) => string | null;
   uploadingDocument: boolean;
   onUploadDocument: (file: File | null) => void | Promise<void>;
   chatMessages: ChatMessage[];
@@ -22,14 +21,12 @@ type DashboardProps = {
 };
 
 export default function Dashboard({
-  accessToken,
-  expiresInSeconds,
+  username,
   isRefreshing,
   docsLoading,
   docsError,
   documents,
   onLogout,
-  decodeJwtSub,
   uploadingDocument,
   onUploadDocument,
   chatMessages,
@@ -40,7 +37,7 @@ export default function Dashboard({
   onChatInputChange,
   onChatSubmit,
 }: DashboardProps) {
-  const sub = accessToken ? decodeJwtSub(accessToken) : null;
+  const sub = username ?? null;
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
@@ -70,11 +67,8 @@ export default function Dashboard({
       <div className="dashboard-shell">
         <div className="dashboard-header">
           <div>
-            <div className="dashboard-title">MOCK DASHBOARD</div>
-            <div className="dashboard-badge">
-              {sub ? `user: ${sub}` : "authenticated"} · expires:{" "}
-              {expiresInSeconds ? `${expiresInSeconds}s` : "-"}
-            </div>
+            <div className="dashboard-title">DASHBOARD</div>
+            <div className="dashboard-badge">{sub ? sub : "authenticated"}</div>
           </div>
 
           <div className="dashboard-actions">
