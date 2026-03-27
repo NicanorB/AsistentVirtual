@@ -64,8 +64,8 @@ struct EmbeddingRequest {
 
 #[derive(Debug, Deserialize)]
 struct EmbeddingResponse {
-    _index: u32,
-    embedding: Vec<f32>,
+    index: u32,
+    embedding: Vec<Vec<f32>>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -385,12 +385,23 @@ async fn fetch_embedding(client: &Client, host: &str, content: &str) -> Result<V
         return Err(ApiError::Internal);
     }
 
-    let embedding = response
-        .json::<EmbeddingResponse>()
+    let mut embeddings = response
+        .json::<Vec<EmbeddingResponse>>()
         .await
         .map_err(|_| ApiError::Internal)?;
 
-    Ok(embedding.embedding)
+    let embedding = embeddings
+        .drain(..)
+        .find(|item| item.index == 0)
+        .ok_or(ApiError::Internal)?;
+
+    let vector = embedding
+        .embedding
+        .into_iter()
+        .next()
+        .ok_or(ApiError::Internal)?;
+
+    Ok(vector)
 }
 
 fn documents_dir_from_config(config: &Arc<AppConfig>) -> Result<PathBuf, ApiError> {

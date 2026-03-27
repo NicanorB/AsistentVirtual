@@ -25,15 +25,19 @@ jobs:
           --health-retries=5
 
       llama-embedding:
-        image: ghcr.io/ggml-org/llama.cpp:server
+        image: python:3.12-slim
         ports:
           - "8080:8080"
         options: >-
-          --entrypoint /app/llama-server
-          --embeddings
-          --hf-repo enacimie/Qwen3-Embedding-0.6B-Q4_K_M-GGUF
-          --hf-file qwen3-embedding-0.6b-q4_k_m.gguf
-          -c 2048
+          --health-cmd "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')\""
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        volumes:
+          - ${{ github.workspace }}/.github/mock-embedding-service:/app
+        command: >
+          sh -c "pip install --no-cache-dir fastapi uvicorn[standard] &&
+          uvicorn main:app --host 0.0.0.0 --port 8080 --app-dir /app"
 
     defaults:
       run:
@@ -54,12 +58,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend -> target
-
-      - name: Verify llama-embedding Service is Up
-        run: |
-          # Give the model a moment to download and load
-          sleep 15
-          curl http://localhost:8080/health
 
       - name: Run backend tests
         run: cargo test --all-targets --locked
