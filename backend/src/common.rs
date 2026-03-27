@@ -22,8 +22,6 @@ pub enum ApiError {
     BadRequest(&'static str),
     #[error("unauthorized")]
     Unauthorized,
-    #[error("forbidden")]
-    Forbidden,
     #[error("conflict: {0}")]
     Conflict(&'static str),
     #[error("internal server error")]
@@ -35,7 +33,6 @@ impl IntoResponse for ApiError {
         let (status, code, message) = match self {
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg),
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized", "unauthorized"),
-            ApiError::Forbidden => (StatusCode::FORBIDDEN, "forbidden", "forbidden"),
             ApiError::Conflict(msg) => (StatusCode::CONFLICT, "conflict", msg),
             ApiError::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,
