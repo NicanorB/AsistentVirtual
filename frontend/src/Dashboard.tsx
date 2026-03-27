@@ -1,5 +1,5 @@
-import type { ChangeEvent } from "react";
-import type { DocumentRow } from "./types/auth";
+import type { ChangeEvent, FormEvent } from "react";
+import type { ChatMessage, ChatSourceItem, DocumentRow } from "./types/auth";
 
 type DashboardProps = {
   accessToken: string;
@@ -12,6 +12,13 @@ type DashboardProps = {
   decodeJwtSub: (token: string) => string | null;
   uploadingDocument: boolean;
   onUploadDocument: (file: File | null) => void | Promise<void>;
+  chatMessages: ChatMessage[];
+  chatSources: ChatSourceItem[];
+  chatInput: string;
+  chatLoading: boolean;
+  chatError: string;
+  onChatInputChange: (value: string) => void;
+  onChatSubmit: (message: string) => void | Promise<void>;
 };
 
 export default function Dashboard({
@@ -25,6 +32,13 @@ export default function Dashboard({
   decodeJwtSub,
   uploadingDocument,
   onUploadDocument,
+  chatMessages,
+  chatSources,
+  chatInput,
+  chatLoading,
+  chatError,
+  onChatInputChange,
+  onChatSubmit,
 }: DashboardProps) {
   const sub = accessToken ? decodeJwtSub(accessToken) : null;
 
@@ -32,6 +46,11 @@ export default function Dashboard({
     const file = event.target.files?.[0] ?? null;
     await onUploadDocument(file);
     event.target.value = "";
+  };
+
+  const handleChatSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await onChatSubmit(chatInput);
   };
 
   return (
@@ -122,6 +141,98 @@ export default function Dashboard({
                   ) : (
                     <div className="dashboard-note">No documents found.</div>
                   )}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="chat-panel">
+              <div>
+                <div className="dashboard-section-title">Assistant Chat</div>
+                <div className="dashboard-note">
+                  Ask questions about your uploaded documents.
+                </div>
+              </div>
+
+              <div className="chat-message-list">
+                {chatMessages.length ? (
+                  chatMessages.map((message) => (
+                    <div
+                      className={`chat-message ${message.role}`}
+                      key={message.id}
+                    >
+                      <div className="chat-message-role">
+                        {message.role === "user" ? "You" : "Assistant"}
+                      </div>
+                      <div className="chat-message-content">
+                        {message.content || (chatLoading ? "Thinking…" : "")}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="dashboard-note">
+                    Start a conversation to query your document context.
+                  </div>
+                )}
+              </div>
+
+              {chatError ? (
+                <div className="dashboard-error">{chatError}</div>
+              ) : null}
+
+              <form onSubmit={handleChatSubmit} className="chat-form">
+                <textarea
+                  className="chat-input"
+                  value={chatInput}
+                  onChange={(event) => onChatInputChange(event.target.value)}
+                  placeholder="Ask the assistant about your documents"
+                  disabled={chatLoading || isRefreshing}
+                />
+
+                <div
+                  className="dashboard-actions"
+                  style={{ justifyContent: "space-between" }}
+                >
+                  <div className="dashboard-note">
+                    {chatLoading
+                      ? "Streaming response…"
+                      : "Responses use retrieved document context."}
+                  </div>
+
+                  <button
+                    className="dash-btn"
+                    type="submit"
+                    disabled={
+                      chatLoading || isRefreshing || !chatInput.trim().length
+                    }
+                  >
+                    {chatLoading ? "Sending..." : "Send"}
+                  </button>
+                </div>
+              </form>
+
+              {chatSources.length ? (
+                <div>
+                  <div className="dashboard-section-title">Sources</div>
+                  <div className="chat-sources">
+                    {chatSources.map((source, index) => (
+                      <div
+                        className="document-row"
+                        key={`${source.document}-${index}`}
+                      >
+                        <div className="document-main">
+                          <div
+                            className="document-title"
+                            title={source.document}
+                          >
+                            {source.document}
+                          </div>
+                          <div className="chat-source-snippet">
+                            {source.text_snippet}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>

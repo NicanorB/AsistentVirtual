@@ -4,6 +4,10 @@ import "./App.css";
 import Dashboard from "./Dashboard.tsx";
 import type {
   AuthMode,
+  ChatMessage,
+  ChatSourceItem,
+  ChatStreamDone,
+  ChatStreamEvent,
   DocumentRow,
   StrengthLevel,
   SuccessOverlayState,
@@ -108,6 +112,11 @@ export default function App() {
   const [docsError, setDocsError] = useState("");
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatSources, setChatSources] = useState<ChatSourceItem[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
 
   const clearAuthErrors = useCallback(() => {
     setLoginUserErr("");
@@ -134,6 +143,11 @@ export default function App() {
     setExpiresInSeconds(0);
     setDocuments([]);
     setDocsError("");
+    setChatMessages([]);
+    setChatSources([]);
+    setChatInput("");
+    setChatError("");
+    setChatLoading(false);
   }, []);
 
   const refreshSession = useCallback(
@@ -284,6 +298,148 @@ export default function App() {
       }
     },
     [accessToken, fetchDocuments, refreshSession, tokenType],
+  );
+
+  const handleChatSubmit = useCallback(
+    async (message: string) => {
+      const trimmedMessage = message.trim();
+      if (!trimmedMessage || !accessToken || chatLoading) return;
+
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: trimmedMessage,
+      };
+      const assistantMessageId = `assistant-${Date.now()}`;
+
+      setChatMessages((current) => [
+        ...current,
+        userMessage,
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: "",
+        },
+      ]);
+      setChatSources([]);
+      setChatError("");
+      setChatInput("");
+      setChatLoading(true);
+
+      const readSseResponse = async (response: Response) => {
+        if (!response.ok || !response.body) {
+          throw new Error("Failed to start chat stream.");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        const applyChunk = (payload: string) => {
+          if (!payload.trim()) return;
+
+          const event = JSON.parse(payload) as ChatStreamEvent;
+          if (event.stop) {
+            const doneEvent = event as ChatStreamDone;
+            setChatSources(doneEvent.sources ?? []);
+            return;
+          }
+
+          setChatMessages((current) =>
+            current.map((entry) =>
+              entry.id === assistantMessageId
+                ? { ...entry, content: entry.content + event.content }
+                : entry,
+            ),
+          );
+        };
+
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value ?? new Uint8Array(), {
+            stream: !done,
+          });
+
+          let separatorIndex = buffer.indexOf("\n\n");
+          while (separatorIndex !== -1) {
+            const rawEvent = buffer.slice(0, separatorIndex);
+            buffer = buffer.slice(separatorIndex + 2);
+
+            const payload = rawEvent
+              .split("\n")
+              .filter((line) => line.startsWith("data: "))
+              .map((line) => line.slice(6))
+              .join("\n");
+
+            if (payload) {
+              applyChunk(payload);
+            }
+
+            separatorIndex = buffer.indexOf("\n\n");
+          }
+
+          if (done) {
+            const remainingPayload = buffer
+              .split("\n")
+              .filter((line) => line.startsWith("data: "))
+              .map((line) => line.slice(6))
+              .join("\n");
+
+            if (remainingPayload) {
+              applyChunk(remainingPayload);
+            }
+
+            break;
+          }
+        }
+      };
+
+      const requestOnce = async (authHeader: string) =>
+        await fetch("/api/chat/query", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authHeader,
+          },
+          body: JSON.stringify({
+            query: trimmedMessage,
+          }),
+        });
+
+      try {
+        let response = await requestOnce(`${tokenType} ${accessToken}`);
+
+        if (response.status === 401) {
+          const tokens = await refreshSession({ silent: true });
+          response = await requestOnce(
+            `${tokens.token_type} ${tokens.access_token}`,
+          );
+        }
+
+        await readSseResponse(response);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to send chat query.";
+        setChatError(message);
+        setChatMessages((current) =>
+          current.map((entry) =>
+            entry.id === assistantMessageId && !entry.content.trim()
+              ? {
+                  ...entry,
+                  content:
+                    "I couldn't complete that request. Please try again.",
+                }
+              : entry,
+          ),
+        );
+
+        const storedAccess = getStoredAuth().accessToken;
+        if (!storedAccess) setView("auth");
+      } finally {
+        setChatLoading(false);
+      }
+    },
+    [accessToken, chatLoading, refreshSession, tokenType],
   );
 
   useEffect(() => {
@@ -496,6 +652,13 @@ export default function App() {
         decodeJwtSub={decodeJwtSub}
         uploadingDocument={uploadingDocument}
         onUploadDocument={handleDocumentUpload}
+        chatMessages={chatMessages}
+        chatSources={chatSources}
+        chatInput={chatInput}
+        chatLoading={chatLoading}
+        chatError={chatError}
+        onChatInputChange={setChatInput}
+        onChatSubmit={handleChatSubmit}
       />
     );
   }

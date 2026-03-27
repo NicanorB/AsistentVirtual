@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tracing::info;
 
 use crate::{
     auth::AuthUser,
@@ -88,6 +89,7 @@ pub async fn query_chat(
     user: AuthUser,
     JsonExtractor(payload): JsonExtractor<ChatQueryRequest>,
 ) -> Result<Response, ApiError> {
+    info!("Received query: {}", payload.query);
     let query = payload.query.trim().to_string();
     if query.is_empty() {
         return Err(ApiError::BadRequest("query must not be empty"));
@@ -131,6 +133,7 @@ async fn handle_chat_query(
     }
 
     let retrieved_chunks = fetch_similar_chunks(&state.pool, user.user_id, query_embedding).await?;
+
     let sources: Vec<SourceItem> = retrieved_chunks
         .iter()
         .map(|row| SourceItem {
@@ -269,7 +272,6 @@ async fn request_llama_stream(
     prompt: String,
 ) -> Result<impl Stream<Item = Result<String, ApiError>>, ApiError> {
     let url = format!("{}/completion", host.trim_end_matches('/'));
-
     let response = client
         .post(url)
         .json(&LlamaCompletionRequest {
@@ -279,6 +281,8 @@ async fn request_llama_stream(
         .send()
         .await
         .map_err(|_| ApiError::Internal)?;
+
+    info!("Completion server response status: {}", response.status());
 
     if !response.status().is_success() {
         return Err(ApiError::Internal);

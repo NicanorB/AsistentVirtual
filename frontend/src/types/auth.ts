@@ -31,3 +31,29 @@ export type SuccessOverlayState = {
   title: string;
   sub: string;
 };
+
+export type ChatMessageRole = "user" | "assistant";
+
+export type ChatMessage = {
+  id: string;
+  role: ChatMessageRole;
+  content: string;
+};
+
+export type ChatSourceItem = {
+  document: string;
+  text_snippet: string;
+};
+
+export type ChatStreamChunk = {
+  content: string;
+  stop: boolean;
+};
+
+export type ChatStreamDone = {
+  content: string;
+  stop: boolean;
+  sources: ChatSourceItem[];
+};
+
+export type ChatStreamEvent = ChatStreamChunk | ChatStreamDone;
