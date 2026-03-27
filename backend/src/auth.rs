@@ -410,6 +410,7 @@ mod tests {
             refresh_ttl: Duration::days(30),
             documents_dir: "".to_string(),
             embeddings_host: "".to_string(),
+            completions_host: "".to_string(),
         }
     }
 
@@ -566,6 +567,7 @@ mod tests {
             refresh_ttl: valid_cfg.refresh_ttl,
             documents_dir: valid_cfg.documents_dir.clone(),
             embeddings_host: valid_cfg.embeddings_host.clone(),
+            completions_host: valid_cfg.completions_host.clone(),
         };
         let user_id = Uuid::new_v4();
         let token = mint_access_token(&other_cfg, user_id).expect("access token should be minted");
