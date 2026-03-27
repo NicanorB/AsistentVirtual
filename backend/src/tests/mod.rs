@@ -118,6 +118,7 @@ fn test_config() -> Arc<AppConfig> {
         refresh_ttl: time::Duration::days(30),
         documents_dir: test_documents_dir().to_string_lossy().into_owned(),
         embeddings_host: test_embeddings_host().to_string(),
+        completions_host: "".to_string(),
     })
 }
 

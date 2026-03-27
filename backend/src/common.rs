@@ -76,6 +76,8 @@ pub struct AppConfig {
     pub documents_dir: String,
     /// Host of the vector embeddings service.
     pub embeddings_host: String,
+    /// Host of the completions service.
+    pub completions_host: String,
 }
 
 impl AppConfig {
@@ -113,6 +115,8 @@ impl AppConfig {
             .map_err(|_| anyhow::anyhow!("DOCUMENTS_DIR is not set"))?;
         let embeddings_host = std::env::var("EMBEDDINGS_HOST")
             .map_err(|_| anyhow::anyhow!("EMBEDDINGS_HOST is not set"))?;
+        let completions_host = std::env::var("COMPLETIONS_HOST")
+            .map_err(|_| anyhow::anyhow!("COMPLETIONS_HOST is not set"))?;
 
         Ok(Self {
             jwt_access_secret,
@@ -121,6 +125,7 @@ impl AppConfig {
             refresh_ttl: Duration::days(30),
             documents_dir,
             embeddings_host,
+            completions_host,
         })
     }
 }

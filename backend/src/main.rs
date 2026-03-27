@@ -1,4 +1,5 @@
 mod auth;
+mod chat;
 mod common;
 mod documents;
 
@@ -10,6 +11,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::{fs, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use chat::router as chat_router;
 use common::{AppConfig, AppState};
 use documents::router as documents_router;
 
@@ -19,7 +21,7 @@ fn build_router(state: AppState) -> Router {
         .route("/login", post(auth::login))
         .route("/refresh_token", post(auth::refresh_token));
 
-    let protected_routes = Router::new().merge(documents_router());
+    let protected_routes = Router::new().merge(documents_router()).merge(chat_router());
 
     Router::new()
         .nest("/api/auth", auth_routes)

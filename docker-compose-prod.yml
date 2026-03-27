@@ -27,6 +27,9 @@ services:
       JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
       DOCUMENTS_DIR: /app/documents
       EMBEDDINGS_HOST: http://llama_embedding:8080
+      COMPLETIONS_HOST: http://host.docker.internal:8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     secrets:
       - postgres_password
       - jwt_access_secret
@@ -36,8 +39,6 @@ services:
 
   llama_embedding:
     image: ghcr.io/ggml-org/llama.cpp:server
-    ports:
-      - "8080:8080"
     command:
       - "--embeddings"
       - "--hf-repo"
