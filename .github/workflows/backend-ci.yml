@@ -24,21 +24,6 @@ jobs:
           --health-timeout=5s
           --health-retries=5
 
-      llama-embedding:
-        image: python:3.12-slim
-        ports:
-          - "8080:8080"
-        options: >-
-          --health-cmd "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')\""
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-          -v ${{ github.workspace }}/.github/mock-embedding-service:/app
-          --entrypoint sh
-        args: >-
-          -c "pip install --no-cache-dir fastapi uvicorn[standard] &&
-          uvicorn main:app --host 0.0.0.0 --port 8080 --app-dir /app"
-
     defaults:
       run:
         working-directory: backend
@@ -58,6 +43,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend -> target
+
+      - name: Start mock embeddings API
+        run: |
+          python -m venv .venv-embeddings
+          . .venv-embeddings/bin/activate
+          pip install --no-cache-dir fastapi uvicorn[standard]
+          nohup uvicorn main:app --host 0.0.0.0 --port 8080 --app-dir ../.github/mock-embedding-service >/tmp/mock-embeddings.log 2>&1 &
+          sleep 5
+          curl http://localhost:8080/health
 
       - name: Run backend tests
         run: cargo test --all-targets --locked
