@@ -1,122 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import "./App.css";
+import Dashboard from "./Dashboard.tsx";
+import type {
+  AuthMode,
+  DocumentRow,
+  StrengthLevel,
+  SuccessOverlayState,
+  TokenPair,
+} from "./types/auth";
 
-type TokenPair = {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  expires_in_seconds: number;
-};
-
-type ApiErrorResponse = {
-  error?: {
-    code?: string;
-    message?: string;
-  };
-};
-
-type AuthMode = "login" | "signup";
-
-type StrengthLevel = {
-  width: string;
-  color: string;
-  text: string;
-};
-
-type DocumentRow = {
-  id: string;
-  title: string;
-  file: string;
-};
-
-type SuccessOverlayState = {
-  show: boolean;
-  title: string;
-  sub: string;
-};
-
-const ACCESS_TOKEN_KEY = "auth.access_token";
-const REFRESH_TOKEN_KEY = "auth.refresh_token";
-const TOKEN_TYPE_KEY = "auth.token_type";
-const EXPIRES_IN_KEY = "auth.expires_in_seconds";
-
-function getStoredAuth() {
-  return {
-    accessToken: localStorage.getItem(ACCESS_TOKEN_KEY) ?? "",
-    refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) ?? "",
-    tokenType: localStorage.getItem(TOKEN_TYPE_KEY) ?? "Bearer",
-    expiresInSeconds: Number(localStorage.getItem(EXPIRES_IN_KEY) ?? "0"),
-  };
-}
-
-function storeAuth(tokens: TokenPair) {
-  localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
-  localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
-  localStorage.setItem(TOKEN_TYPE_KEY, tokens.token_type);
-  localStorage.setItem(EXPIRES_IN_KEY, String(tokens.expires_in_seconds ?? 0));
-}
-
-function clearStoredAuth() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(TOKEN_TYPE_KEY);
-  localStorage.removeItem(EXPIRES_IN_KEY);
-}
-
-async function parseApiResponse<T>(response: Response): Promise<T> {
-  if (response.ok) {
-    return (await response.json()) as T;
-  }
-
-  let message = `Request failed with status ${response.status}`;
-  try {
-    const body = (await response.json()) as ApiErrorResponse;
-    message = body.error?.message ?? message;
-  } catch {
-    message = response.statusText || message;
-  }
-
-  throw new Error(message);
-}
-
-function computePasswordStrength(val: string): StrengthLevel {
-  if (!val) {
-    return { width: "0%", color: "rgba(0, 212, 255, 1)", text: "" };
-  }
-
-  let score = 0;
-  if (val.length >= 8) score++;
-  if (/[A-Z]/.test(val)) score++;
-  if (/[0-9]/.test(val)) score++;
-  if (/[^A-Za-z0-9]/.test(val)) score++;
-
-  const levels = [
-    { width: "20%", color: "#ff4a6e", text: "WEAK" },
-    { width: "45%", color: "#ff8c42", text: "FAIR" },
-    { width: "70%", color: "#f9c74f", text: "GOOD" },
-    { width: "100%", color: "#00d4ff", text: "STRONG" },
-  ];
-
-  const idx = Math.max(0, score - 1);
-  return levels[idx] ?? levels[0]!;
-}
-
-function decodeJwtSub(token: string): string | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return null;
-
-    // base64url -> base64
-    const payload = parts[1]!;
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = atob(normalized);
-    const json = JSON.parse(decoded) as { sub?: string };
-    return typeof json.sub === "string" ? json.sub : null;
-  } catch {
-    return null;
-  }
-}
+const ACCEPTED_DOCUMENT_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+] as const;
+const ACCEPTED_DOCUMENT_EXTENSIONS = [".pdf", ".docx", ".txt"] as const;
+import {
+  clearStoredAuth,
+  decodeJwtSub,
+  getStoredAuth,
+  parseApiResponse,
+  storeAuth,
+} from "./utils/auth";
+import { computePasswordStrength } from "./utils/password";
 
 function EyeIcon({ off }: { off: boolean }) {
   if (off) {
@@ -200,6 +107,7 @@ export default function App() {
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState("");
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
 
   const clearAuthErrors = useCallback(() => {
     setLoginUserErr("");
@@ -305,12 +213,78 @@ export default function App() {
         error instanceof Error ? error.message : "Failed to load documents.";
       setDocsError(message);
       // If refresh cleared the session, return to auth.
-      const storedAccess = localStorage.getItem(ACCESS_TOKEN_KEY);
+      const storedAccess = getStoredAuth().accessToken;
       if (!storedAccess) setView("auth");
     } finally {
       setDocsLoading(false);
     }
   }, [accessToken, refreshSession, tokenType]);
+
+  const handleDocumentUpload = useCallback(
+    async (file: File | null) => {
+      if (!file) return;
+
+      const lowerName = file.name.toLowerCase();
+      const hasAcceptedExtension = ACCEPTED_DOCUMENT_EXTENSIONS.some((ext) =>
+        lowerName.endsWith(ext),
+      );
+      const hasAcceptedMimeType =
+        !file.type ||
+        ACCEPTED_DOCUMENT_TYPES.includes(
+          file.type as (typeof ACCEPTED_DOCUMENT_TYPES)[number],
+        );
+
+      if (!hasAcceptedExtension || !hasAcceptedMimeType) {
+        setDocsError("Only PDF, DOCX, or TXT files are allowed.");
+        return;
+      }
+
+      if (!accessToken) {
+        setDocsError("You must be authenticated to upload documents.");
+        setView("auth");
+        return;
+      }
+
+      setUploadingDocument(true);
+      setDocsError("");
+
+      const uploadOnce = async (authHeader: string) => {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        return await fetch("/api/documents", {
+          method: "POST",
+          headers: {
+            Authorization: authHeader,
+          },
+          body: formData,
+        });
+      };
+
+      try {
+        let response = await uploadOnce(`${tokenType} ${accessToken}`);
+
+        if (response.status === 401) {
+          const tokens = await refreshSession({ silent: true });
+          response = await uploadOnce(
+            `${tokens.token_type} ${tokens.access_token}`,
+          );
+        }
+
+        await parseApiResponse<DocumentRow>(response);
+        await fetchDocuments();
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to upload document.";
+        setDocsError(message);
+        const storedAccess = getStoredAuth().accessToken;
+        if (!storedAccess) setView("auth");
+      } finally {
+        setUploadingDocument(false);
+      }
+    },
+    [accessToken, fetchDocuments, refreshSession, tokenType],
+  );
 
   useEffect(() => {
     // Keep password strength bar in sync with the signup password input.
@@ -510,93 +484,19 @@ export default function App() {
   );
 
   if (view === "dashboard") {
-    const sub = accessToken ? decodeJwtSub(accessToken) : null;
-
     return (
-      <div className="dashboard-page">
-        <div className="bg">
-          <div className="ring ring-outer-l"></div>
-          <div className="ring ring-inner-l"></div>
-          <div className="ring ring-outer-r"></div>
-          <div className="ring ring-inner-r"></div>
-          <div className="beam beam-top"></div>
-          <div className="beam beam-bottom"></div>
-          <div className="orb orb-left"></div>
-          <div className="orb orb-right"></div>
-        </div>
-        <div className="scan-line"></div>
-
-        <div className="dashboard-shell">
-          <div className="dashboard-header">
-            <div>
-              <div className="dashboard-title">MOCK DASHBOARD</div>
-              <div className="dashboard-badge">
-                {sub ? `user: ${sub}` : "authenticated"} · expires:{" "}
-                {expiresInSeconds ? `${expiresInSeconds}s` : "-"}
-              </div>
-            </div>
-
-            <div className="dashboard-actions">
-              <button
-                className="dash-btn danger"
-                type="button"
-                onClick={handleLogout}
-                disabled={isRefreshing}
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-
-          <div className="dashboard-card">
-            <div className="dashboard-grid">
-              <div>
-                <div className="dashboard-section-title">Your Documents</div>
-                <div className="dashboard-note">
-                  {docsLoading
-                    ? "Loading…"
-                    : docsError
-                      ? "Unable to fetch documents."
-                      : "Fetched from backend."}
-                </div>
-
-                {docsError ? (
-                  <div className="dashboard-error" style={{ marginTop: 10 }}>
-                    {docsError}
-                  </div>
-                ) : null}
-
-                {!docsLoading && !docsError ? (
-                  <div className="document-list" style={{ marginTop: 12 }}>
-                    {documents.length ? (
-                      documents.map((doc) => (
-                        <div className="document-row" key={doc.id}>
-                          <div className="document-main">
-                            <div className="document-title" title={doc.title}>
-                              {doc.title}
-                            </div>
-                            <div className="document-meta">
-                              file: {doc.file}
-                            </div>
-                          </div>
-                          <div
-                            className="document-meta"
-                            style={{ whiteSpace: "nowrap" }}
-                          >
-                            {doc.id}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="dashboard-note">No documents found.</div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <Dashboard
+        accessToken={accessToken}
+        expiresInSeconds={expiresInSeconds}
+        isRefreshing={isRefreshing}
+        docsLoading={docsLoading}
+        docsError={docsError}
+        documents={documents}
+        onLogout={handleLogout}
+        decodeJwtSub={decodeJwtSub}
+        uploadingDocument={uploadingDocument}
+        onUploadDocument={handleDocumentUpload}
+      />
     );
   }
 
