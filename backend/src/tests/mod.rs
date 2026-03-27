@@ -20,6 +20,7 @@ pub mod auth;
 pub mod documents;
 
 static TEST_DATABASE_URL: OnceLock<String> = OnceLock::new();
+static TEST_EMBEDDINGS_HOST: OnceLock<String> = OnceLock::new();
 
 pub(super) struct TestApp {
     pub(super) app: axum::Router,
@@ -60,6 +61,10 @@ fn test_database_url() -> &'static str {
     TEST_DATABASE_URL.get_or_init(|| {
         std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for integration tests")
     })
+}
+
+fn test_embeddings_host() -> &'static str {
+    TEST_EMBEDDINGS_HOST.get_or_init(|| std::env::var("EMBEDDINGS_HOST").unwrap_or_default())
 }
 
 async fn create_test_pool() -> (PgPool, String) {
@@ -112,6 +117,7 @@ fn test_config() -> Arc<AppConfig> {
         access_ttl: time::Duration::minutes(5),
         refresh_ttl: time::Duration::days(30),
         documents_dir: test_documents_dir().to_string_lossy().into_owned(),
+        embeddings_host: test_embeddings_host().to_string(),
     })
 }
 

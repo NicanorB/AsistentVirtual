@@ -74,6 +74,8 @@ pub struct AppConfig {
     pub refresh_ttl: Duration,
     /// Directory where uploaded documents are stored.
     pub documents_dir: String,
+    /// Host of the vector embeddings service.
+    pub embeddings_host: String,
 }
 
 impl AppConfig {
@@ -109,6 +111,8 @@ impl AppConfig {
             Self::read_env_or_file("JWT_REFRESH_SECRET", "JWT_REFRESH_SECRET_FILE")?;
         let documents_dir = std::env::var("DOCUMENTS_DIR")
             .map_err(|_| anyhow::anyhow!("DOCUMENTS_DIR is not set"))?;
+        let embeddings_host = std::env::var("EMBEDDINGS_HOST")
+            .map_err(|_| anyhow::anyhow!("EMBEDDINGS_HOST is not set"))?;
 
         Ok(Self {
             jwt_access_secret,
@@ -116,6 +120,7 @@ impl AppConfig {
             access_ttl: Duration::minutes(5),
             refresh_ttl: Duration::days(30),
             documents_dir,
+            embeddings_host,
         })
     }
 }
