@@ -22,7 +22,6 @@ const ACCEPTED_DOCUMENT_TYPES = [
 const ACCEPTED_DOCUMENT_EXTENSIONS = [".pdf", ".docx", ".txt"] as const;
 import {
   clearStoredAuth,
-  decodeJwtSub,
   getStoredAuth,
   parseApiResponse,
   storeAuth,
@@ -63,6 +62,9 @@ function EyeIcon({ off }: { off: boolean }) {
 
 export default function App() {
   const storedAuth = useMemo(() => getStoredAuth(), []);
+  const [dashboardUsername, setDashboardUsername] = useState(
+    storedAuth.username,
+  );
   const [view, setView] = useState<"auth" | "dashboard">(
     storedAuth.accessToken ? "dashboard" : "auth",
   );
@@ -84,9 +86,6 @@ export default function App() {
   const [accessToken, setAccessToken] = useState(storedAuth.accessToken);
   const [refreshToken, setRefreshToken] = useState(storedAuth.refreshToken);
   const [tokenType, setTokenType] = useState(storedAuth.tokenType);
-  const [expiresInSeconds, setExpiresInSeconds] = useState(
-    storedAuth.expiresInSeconds,
-  );
 
   const [loginUserErr, setLoginUserErr] = useState("");
   const [loginPassErr, setLoginPassErr] = useState("");
@@ -127,20 +126,24 @@ export default function App() {
     setFormErr("");
   }, []);
 
-  const updateSessionState = useCallback((tokens: TokenPair) => {
-    storeAuth(tokens);
-    setAccessToken(tokens.access_token);
-    setRefreshToken(tokens.refresh_token);
-    setTokenType(tokens.token_type);
-    setExpiresInSeconds(tokens.expires_in_seconds);
-  }, []);
+  const updateSessionState = useCallback(
+    (tokens: TokenPair, nextUsername?: string) => {
+      storeAuth(tokens, nextUsername);
+      setAccessToken(tokens.access_token);
+      setRefreshToken(tokens.refresh_token);
+      setTokenType(tokens.token_type);
+      if (typeof nextUsername === "string") {
+        setDashboardUsername(nextUsername);
+      }
+    },
+    [],
+  );
 
   const resetSession = useCallback(() => {
     clearStoredAuth();
     setAccessToken("");
     setRefreshToken("");
     setTokenType("Bearer");
-    setExpiresInSeconds(0);
     setDocuments([]);
     setDocsError("");
     setChatMessages([]);
@@ -538,7 +541,7 @@ export default function App() {
           }),
         );
 
-        updateSessionState(tokens);
+        updateSessionState(tokens, trimmedName);
         setSuccessOverlay({
           show: true,
           title: "IDENTITY REGISTERED",
@@ -568,7 +571,7 @@ export default function App() {
           }),
         );
 
-        updateSessionState(tokens);
+        updateSessionState(tokens, trimmedUser);
         setSuccessOverlay({
           show: true,
           title: "ACCESS GRANTED",
@@ -611,6 +614,7 @@ export default function App() {
     setSuccessOverlay({ show: false, title: "", sub: "" });
     setView("auth");
     setMode("login");
+    setDashboardUsername("");
     setUsername("");
     setPassword("");
     //setEmail("");
@@ -642,14 +646,13 @@ export default function App() {
   if (view === "dashboard") {
     return (
       <Dashboard
+        username={dashboardUsername}
         accessToken={accessToken}
-        expiresInSeconds={expiresInSeconds}
         isRefreshing={isRefreshing}
         docsLoading={docsLoading}
         docsError={docsError}
         documents={documents}
         onLogout={handleLogout}
-        decodeJwtSub={decodeJwtSub}
         uploadingDocument={uploadingDocument}
         onUploadDocument={handleDocumentUpload}
         chatMessages={chatMessages}
