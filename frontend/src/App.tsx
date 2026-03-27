@@ -150,8 +150,6 @@ function EyeIcon({ off }: { off: boolean }) {
   );
 }
 
-
-
 export default function App() {
   const storedAuth = useMemo(() => getStoredAuth(), []);
   const [view, setView] = useState<"auth" | "dashboard">(
@@ -617,7 +615,7 @@ export default function App() {
       <div className="scan-line"></div>
 
       <div className="panel-wrap">
-        <div className="welcome-title">AI &nbsp; INTERFACE</div>
+        <div className="welcome-title">ASISTENT &nbsp; VIRTUAL</div>
 
         <div className="panel">
           <div
@@ -642,14 +640,14 @@ export default function App() {
               className={`tab-btn ${loginActive ? "active" : ""}`}
               onClick={() => switchMode("login")}
             >
-              Sign In
+              Logare
             </button>
             <button
               type="button"
               className={`tab-btn ${registerActive ? "active" : ""}`}
               onClick={() => switchMode("signup")}
             >
-              Register
+              Înregistrare
             </button>
           </div>
 
@@ -743,18 +741,6 @@ export default function App() {
                     <div className="custom-check"></div>
                     <span>Remember me</span>
                   </label>
-                  <a
-                    className="forgot-link"
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setFormErr(
-                        "Forgot access code? Not implemented in this demo.",
-                      );
-                    }}
-                  >
-                    Forgot access code?
-                  </a>
                 </div>
 
                 <button
@@ -762,7 +748,7 @@ export default function App() {
                   className={`submit-btn ${isSubmittingAuth ? "loading" : ""}`}
                   disabled={isSubmittingAuth}
                 >
-                  Initiate Connection
+                  Loghează-te
                 </button>
 
                 {formErr ? (
@@ -770,8 +756,6 @@ export default function App() {
                     {formErr}
                   </div>
                 ) : null}
-
-
               </form>
             </div>
 
@@ -915,7 +899,7 @@ export default function App() {
                   className={`submit-btn ${isSubmittingAuth ? "loading" : ""}`}
                   disabled={isSubmittingAuth}
                 >
-                  Create Account
+                  Creează cont
                 </button>
 
                 {formErr ? (
