@@ -24,18 +24,16 @@ jobs:
           --health-timeout=5s
           --health-retries=5
 
-      llama_embedding:
+      llama-embedding:
         image: ghcr.io/ggml-org/llama.cpp:server
         ports:
           - "8080:8080"
-        command:
-          - "--embeddings"
-          - "--hf-repo"
-          - "enacimie/Qwen3-Embedding-0.6B-Q4_K_M-GGUF"
-          - "--hf-file"
-          - "qwen3-embedding-0.6b-q4_k_m.gguf"
-          - "-c"
-          - "2048"
+        options: >-
+          --entrypoint /app/llama-server
+          --embeddings
+          --hf-repo enacimie/Qwen3-Embedding-0.6B-Q4_K_M-GGUF
+          --hf-file qwen3-embedding-0.6b-q4_k_m.gguf
+          -c 2048
 
     defaults:
       run:
@@ -56,6 +54,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend -> target
+
+      - name: Verify llama-embedding Service is Up
+        run: |
+          # Give the model a moment to download and load
+          sleep 15
+          curl http://localhost:8080/health
 
       - name: Run backend tests
         run: cargo test --all-targets --locked
