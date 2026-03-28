@@ -1,5 +1,14 @@
 use std::convert::Infallible;
 
+use async_openai::{
+    Client as OpenAiClient,
+    config::OpenAIConfig,
+    types::chat::{
+        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
+        ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
+        CreateChatCompletionStreamResponse,
+    },
+};
 use axum::{
     Json as JsonExtractor, Router,
     extract::State,
@@ -68,18 +77,6 @@ struct StreamDone {
     sources: Vec<SourceItem>,
 }
 
-#[derive(Debug, Deserialize)]
-struct LlamaCompletionChunk {
-    content: Option<String>,
-    stop: Option<bool>,
-}
-
-#[derive(Debug, Serialize)]
-struct LlamaCompletionRequest {
-    prompt: String,
-    stream: bool,
-}
-
 pub fn router() -> Router<AppState> {
     Router::new().route("/chat/query", post(query_chat))
 }
@@ -143,8 +140,13 @@ async fn handle_chat_query(
         .collect();
 
     let prompt = build_prompt(&query, &sources);
-    let llama_stream =
-        request_llama_stream(&client, &state.config.completions_host, prompt).await?;
+    let llama_stream = request_llama_stream(
+        state.config.completions_host.as_deref(),
+        state.config.openai_api_key.as_deref(),
+        &query,
+        prompt,
+    )
+    .await?;
 
     tokio::pin!(llama_stream);
 
@@ -200,7 +202,7 @@ async fn fetch_similar_chunks(
     .map_err(|_| ApiError::Internal)
 }
 
-fn build_prompt(query: &str, sources: &[SourceItem]) -> String {
+fn build_prompt(_query: &str, sources: &[SourceItem]) -> String {
     let context = if sources.is_empty() {
         "No relevant document context was found for this user.".to_string()
     } else {
@@ -222,10 +224,8 @@ fn build_prompt(query: &str, sources: &[SourceItem]) -> String {
     format!(
         "You are a helpful assistant. Answer the user's question using the provided context when relevant. \
 If the context is insufficient, say so clearly and still try to be helpful. Do not directly quote the given context.\n\n\
-Context:\n{}\n\n\
-User question:\n{}\n\n\
-Answer:",
-        context, query
+Context:\n{}\n",
+        context
     )
 }
 
@@ -263,64 +263,63 @@ async fn fetch_embedding(client: &Client, host: &str, content: &str) -> Result<V
 }
 
 async fn request_llama_stream(
-    client: &Client,
-    host: &str,
+    host: Option<&str>,
+    api_key: Option<&str>,
+    query: &str,
     prompt: String,
 ) -> Result<impl Stream<Item = Result<String, ApiError>>, ApiError> {
-    let url = format!("{}/completion", host.trim_end_matches('/'));
-    let response = client
-        .post(url)
-        .json(&LlamaCompletionRequest {
-            prompt,
-            stream: true,
-        })
-        .send()
+    let mut config = OpenAIConfig::new();
+
+    if let Some(host) = host {
+        config = config.with_api_base(host);
+    }
+    if let Some(api_key) = api_key {
+        config = config.with_api_key(api_key);
+    }
+
+    let client = OpenAiClient::with_config(config);
+
+    let messages: Vec<ChatCompletionRequestMessage> = vec![
+        ChatCompletionRequestSystemMessageArgs::default()
+            .content(prompt)
+            .build()
+            .map_err(|_| ApiError::Internal)?
+            .into(),
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(query)
+            .build()
+            .map_err(|_| ApiError::Internal)?
+            .into(),
+    ];
+
+    let request = CreateChatCompletionRequestArgs::default()
+        .model("gpt-5.4-mini")
+        .max_tokens(512u32)
+        .stream(true)
+        .messages(messages)
+        .build()
+        .map_err(|_| ApiError::Internal)?;
+
+    let stream = client
+        .chat()
+        .create_stream(request)
         .await
         .map_err(|_| ApiError::Internal)?;
 
-    info!("Completion server response status: {}", response.status());
-
-    if !response.status().is_success() {
-        return Err(ApiError::Internal);
-    }
-
-    let parsed = response.bytes_stream().map(|item| match item {
-        Ok(bytes) => parse_llama_chunk(&bytes),
-        Err(_) => vec![Err(ApiError::Internal)],
-    });
-
-    Ok(parsed.flat_map(futures_util::stream::iter))
+    Ok(stream.map(|item| match item {
+        Ok(chunk) => extract_chat_stream_content(&chunk),
+        Err(_) => Err(ApiError::Internal),
+    }))
 }
 
-fn parse_llama_chunk(bytes: &[u8]) -> Vec<Result<String, ApiError>> {
-    bytes
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-        .map(|line| parse_llama_line(line))
-        .collect()
-}
-
-fn parse_llama_line(line: &[u8]) -> Result<String, ApiError> {
-    let line = std::str::from_utf8(line).map_err(|_| ApiError::Internal)?;
-    let trimmed = line.trim();
-
-    if trimmed.is_empty() {
-        return Ok(String::new());
-    }
-
-    let payload = trimmed.strip_prefix("data: ").unwrap_or(trimmed);
-    if payload == "[DONE]" {
-        return Ok(String::new());
-    }
-
-    let parsed: LlamaCompletionChunk =
-        serde_json::from_str(payload).map_err(|_| ApiError::Internal)?;
-
-    if parsed.stop.unwrap_or(false) {
-        return Ok(String::new());
-    }
-
-    Ok(parsed.content.unwrap_or_default())
+fn extract_chat_stream_content(
+    chunk: &CreateChatCompletionStreamResponse,
+) -> Result<String, ApiError> {
+    Ok(chunk
+        .choices
+        .iter()
+        .filter_map(|choice| choice.delta.content.clone())
+        .collect::<String>())
 }
 
 fn truncate_text(text: &str, max_len: usize) -> String {

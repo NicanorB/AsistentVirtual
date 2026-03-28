@@ -74,7 +74,9 @@ pub struct AppConfig {
     /// Host of the vector embeddings service.
     pub embeddings_host: String,
     /// Host of the completions service.
-    pub completions_host: String,
+    pub completions_host: Option<String>,
+    /// Optional API key for OpenAI-compatible chat completions.
+    pub openai_api_key: Option<String>,
 }
 
 impl AppConfig {
@@ -113,7 +115,13 @@ impl AppConfig {
         let embeddings_host = std::env::var("EMBEDDINGS_HOST")
             .map_err(|_| anyhow::anyhow!("EMBEDDINGS_HOST is not set"))?;
         let completions_host = std::env::var("COMPLETIONS_HOST")
-            .map_err(|_| anyhow::anyhow!("COMPLETIONS_HOST is not set"))?;
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let openai_api_key = std::env::var("OPENAI_API_KEY")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
 
         Ok(Self {
             jwt_access_secret,
@@ -123,6 +131,7 @@ impl AppConfig {
             documents_dir,
             embeddings_host,
             completions_host,
+            openai_api_key,
         })
     }
 }
